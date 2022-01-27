@@ -1,9 +1,12 @@
 package pisk
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 )
 
 type Move struct {
@@ -27,7 +30,6 @@ func (gl *GameLog) Add(move Move) {
 	gl.Moves = append(gl.Moves, move)
 }
 
-/* SaveToFile stores moves in a file */
 func (gl *GameLog) SaveToFile(filename string) {
 	f, err := os.Create(filename)
 	if err != nil {
@@ -38,4 +40,31 @@ func (gl *GameLog) SaveToFile(filename string) {
 	for _, move := range gl.Moves {
 		fmt.Fprintf(f, "%d %d\n", move.X, move.Y)
 	}
+}
+
+func (gl *GameLog) LoadFromFile(filename string) {
+	f, err := os.Open(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, " ")
+		x, err := strconv.Atoi(parts[0])
+		if err != nil {
+			log.Fatal(err)
+		}
+		y, err := strconv.Atoi(parts[1])
+		if err != nil {
+			log.Fatal(err)
+		}
+		gl.Add(Move{uint8(x), uint8(y)})
+	}
+}
+
+func (gl *GameLog) NextPlayer() uint8 {
+	return uint8(len(gl.Moves) % 2)
 }

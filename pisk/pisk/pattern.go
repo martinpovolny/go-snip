@@ -5,6 +5,7 @@ type Pattern struct {
 	Space   uint64
 	NShifts uint8
 	Value   uint8
+	Defense []uint8
 }
 
 func (p Pattern) Match(xs uint64) bool {
@@ -23,9 +24,10 @@ func (p Pattern) MatchIndex(xs uint64) (bool, uint8) {
 }
 
 func (p Pattern) MatchWithSpace(xs uint64, os uint64) (bool, uint8) {
+	occupied := xs | os
 	for i := 0; i < int(p.NShifts); i++ {
 		if (xs&p.Pat) == p.Pat && // crosses are where expected
-			((^os)&p.Space) == p.Space { // spaces (not os) is where expected
+			((^occupied)&p.Space) == p.Space { // spaces (not os) is where expected
 
 			return true, uint8(i)
 		}

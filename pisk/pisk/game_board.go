@@ -51,6 +51,29 @@ func directionName(direction uint8) string {
 	}
 }
 
+func (pm *PatternMatch) Defense(boardSize uint8) []Move {
+	var moves []Move = make([]Move, len(pm.Pattern.Defense))
+
+	if pm.Direction == 0 { // vertical
+		for i, defense := range pm.Pattern.Defense {
+			moves[i] = Move{pm.Shift + defense, pm.Index}
+		}
+	} else if pm.Direction == 1 { // horizontal
+		for i, defense := range pm.Pattern.Defense {
+			moves[i] = Move{pm.Index, pm.Shift + defense}
+		}
+	} else if pm.Direction == 2 { // main diagonal
+		for i, defense := range pm.Pattern.Defense {
+			moves[i] = Move{pm.Shift + defense, -pm.Shift + pm.Index - defense}
+		}
+	} else if pm.Direction == 3 { // anti diagonal
+		for i, defense := range pm.Pattern.Defense {
+			moves[i] = Move{pm.Shift + defense - pm.Index + boardSize - 1, pm.Shift + defense}
+		}
+	}
+	return moves
+}
+
 func (pm *PatternMatch) Print() {
 	fmt.Printf("Pattern: %v, direction: %v, index: %v, shift: %v\n",
 		strconv.FormatUint(uint64(pm.Pattern.Pat), 2),
@@ -59,6 +82,10 @@ func (pm *PatternMatch) Print() {
 		pm.Shift,
 	)
 }
+
+/*
+func (pm *PatternMatch) Defense() []Move {
+}*/
 
 func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMatch {
 	var board1 *Board
