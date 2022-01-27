@@ -19,3 +19,9 @@ $ usql 'postgresql://webapp:webapp@localhost/webapp?sslmode=disable' -c "notify 
  3rd round:
  * Remodelled after https://github.com/gorilla/websocket/blob/master/examples/chat
    This seems is the ultimate "howto" for gorilla websockets.
+
+
+## Next steps
+
+ * WsClient would be parameterised with Incident.ID (uuid.UUID) and the for loop would signal only relevant clients.
+ * Testing: how should we test this?

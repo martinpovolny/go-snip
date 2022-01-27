@@ -76,6 +76,27 @@ func main() {
         }
     })
 
+    http.HandleFunc("/notify", func(w http.ResponseWriter, r *http.Request) {
+        // Upgrade upgrades the HTTP server connection to the WebSocket protocol.
+        conn, err := upgrader.Upgrade(w, r, nil)
+        if err != nil {
+            log.Print("upgrade failed: ", err)
+            return
+        }
+        defer conn.Close()
+
+        // Send message to client when data is available in a channel.
+        for {
+            output := "have message\n"
+            message := []byte(output)
+            err = conn.WriteMessage(websocket.TextMessage, message)
+            if err != nil {
+                log.Println("write failed:", err)
+                break
+            }
+        }
+    })
+
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "websockets.html")
     })
