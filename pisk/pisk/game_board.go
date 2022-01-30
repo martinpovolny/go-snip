@@ -12,13 +12,36 @@ type GameBoard struct {
 	nextMoves Board
 }
 
-func NewGameBoard(size uint8) *GameBoard {
-	return &GameBoard{
+func NewGameBoard(size uint8) GameBoard {
+	return GameBoard{
 		size:      size,
-		XBoard:    *NewBoard(size),
-		OBoard:    *NewBoard(size),
-		nextMoves: *NewBoard(size),
+		XBoard:    NewBoard(size),
+		OBoard:    NewBoard(size),
+		nextMoves: NewBoard(size),
 	}
+}
+
+func (gb *GameBoard) IsEmpty(x, y uint8) bool {
+	return gb.XBoard.IsEmpty(x, y) && gb.OBoard.IsEmpty(x, y)
+}
+
+func (gb *GameBoard) PossibleMoves() []Move {
+	var moves []Move
+	var pattern uint64
+	var i, j uint8
+
+	for i = 0; i < gb.size; i++ {
+		if gb.nextMoves.vertical[i] != 0 { // any value is present on this column
+			// test all rows until the pattern > vertical[i]
+			for j, pattern = 0, 1; pattern <= gb.nextMoves.vertical[i] && j < gb.size; j, pattern = j+1, pattern<<1 {
+				if gb.nextMoves.vertical[i]&pattern == pattern {
+					moves = append(moves, Move{X: j, Y: i})
+				}
+			}
+		}
+	}
+
+	return moves
 }
 
 func (gb *GameBoard) XWon() bool {
@@ -75,17 +98,14 @@ func (pm *PatternMatch) Defense(boardSize uint8) []Move {
 }
 
 func (pm *PatternMatch) Print() {
-	fmt.Printf("Pattern: %v, direction: %v, index: %v, shift: %v\n",
+	fmt.Printf("Pattern: %v (%v), direction: %v, index: %v, shift: %v\n",
 		strconv.FormatUint(uint64(pm.Pattern.Pat), 2),
+		pm.Pattern.Value,
 		directionName(pm.Direction),
 		pm.Index,
 		pm.Shift,
 	)
 }
-
-/*
-func (pm *PatternMatch) Defense() []Move {
-}*/
 
 func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMatch {
 	var board1 *Board
@@ -126,24 +146,25 @@ func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMat
 }
 
 func (gb *GameBoard) Print() {
+	fmt.Println(". 0 1 2 3 4 5 6 7 8 9 0")
 	for i := uint8(0); i < gb.size; i++ {
+		fmt.Printf("%v ", i%10)
 		for j := uint8(0); j < gb.size; j++ {
+			//if gb.XBoard.horizontal[j]&(1<<i) != 0 {
 			if gb.XBoard.vertical[i]&(1<<j) != 0 {
 				fmt.Print("X ")
+				//} else if gb.OBoard.horizontal[j]&(1<<i) != 0 {
 			} else if gb.OBoard.vertical[i]&(1<<j) != 0 {
 				fmt.Print("O ")
 			} else if gb.nextMoves.vertical[i]&(1<<j) != 0 {
-				fmt.Print(". ")
+				//} else if gb.nextMoves.horizontal[j]&(1<<i) != 0 {
+				fmt.Print("_ ")
 			} else {
-				fmt.Print("- ")
+				fmt.Print(". ")
 			}
 		}
 		fmt.Println("")
 	}
-}
-
-func (gb *GameBoard) IsEmpty(x uint8, y uint8) bool {
-	return gb.OBoard.IsEmpty(x, y) && gb.XBoard.IsEmpty(x, y)
 }
 
 func (gb *GameBoard) Place(x, y uint8, player uint8) {
@@ -152,10 +173,37 @@ func (gb *GameBoard) Place(x, y uint8, player uint8) {
 	} else {
 		gb.OBoard.Place(x, y)
 	}
+	gb.nextMoves.Unplace(x, y)
+
 	var tries [][2]uint8 = [][2]uint8{{x + 1, y}, {x - 1, y}, {x, y + 1}, {x, y - 1},
 		{x + 1, y + 1}, {x - 1, y - 1}, {x - 1, y + 1}, {x + 1, y - 1}}
 
 	for _, t := range tries {
-		gb.nextMoves.TryPlace(t[0], t[1])
+		if t[0] == 255 || t[1] == 255 {
+			continue // overflow
+		}
+		if !gb.XBoard.Taken(t[0], t[1]) && !gb.OBoard.Taken(t[0], t[1]) {
+			gb.nextMoves.Place(t[0], t[1])
+		}
 	}
 }
+
+/* Unplace removes a move from the board but leaves the nextMoves intact making it invalid */
+func (gb *GameBoard) Unplace(x uint8, y uint8) {
+	gb.XBoard.Unplace(x, y)
+	gb.OBoard.Unplace(x, y)
+}
+
+func (gb *GameBoard) Copy() GameBoard {
+	//return NewGameBoard(gb.size)
+	return GameBoard{gb.size, gb.XBoard.Copy(), gb.OBoard.Copy(), gb.nextMoves.Copy()}
+}
+
+/*
+	gb := pisk.NewGameBoard(32)
+	gb.Place(10, 10, 0)
+	gb.Place(11, 10, 0)
+	gb.Place(12, 10, 0)
+	gb.Place(10, 11, 1)
+	gb.Print()
+*/

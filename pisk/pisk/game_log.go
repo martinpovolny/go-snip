@@ -52,7 +52,10 @@ func (gl *GameLog) LoadFromFile(filename string) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.Split(line, " ")
+		if strings.HasPrefix(line, "#") { // skip comments
+			continue
+		}
+		parts := strings.Split(line, " ") // each line has "x y"
 		x, err := strconv.Atoi(parts[0])
 		if err != nil {
 			log.Fatal(err)

@@ -10,8 +10,8 @@ type Board struct {
 	antiDiagonal []uint64
 }
 
-func NewBoard(size uint8) *Board {
-	b := &Board{size, make([]uint64, size), make([]uint64, size), make([]uint64, size*2), make([]uint64, size*2)}
+func NewBoard(size uint8) Board {
+	b := Board{size, make([]uint64, size), make([]uint64, size), make([]uint64, size*2), make([]uint64, size*2)}
 	for i := uint8(0); i < size; i++ {
 		b.vertical[i] = 0
 		b.horizontal[i] = 0
@@ -82,6 +82,13 @@ func (b *Board) Place(x, y uint8) {
 	b.antiDiagonal[x-y+b.size-1] |= 1 << x
 }
 
+func (b *Board) Unplace(x, y uint8) {
+	b.vertical[y] &= ^(1 << x)
+	b.horizontal[x] &= ^(1 << y)
+	b.mainDiagonal[x+y] &= ^(1 << x)
+	b.antiDiagonal[x-y+b.size-1] &= ^(1 << x)
+}
+
 func (b *Board) Taken(x, y uint8) bool {
 	return b.vertical[y]&(1<<x) != 0
 }
@@ -93,3 +100,18 @@ func (b *Board) TryPlace(x, y uint8) {
 		}
 	}
 }
+
+func (b *Board) Copy() Board {
+	var board = NewBoard(b.size)
+	copy(board.vertical, b.vertical)
+	copy(board.horizontal, b.horizontal)
+	copy(board.mainDiagonal, b.mainDiagonal)
+	copy(board.antiDiagonal, b.antiDiagonal)
+	return board
+}
+
+/*
+	b := pisk.NewBoard(32)
+	b.Place(10, 10)
+	b.Print()
+*/
