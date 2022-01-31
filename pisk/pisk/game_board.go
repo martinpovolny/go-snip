@@ -91,7 +91,8 @@ func (pm *PatternMatch) Defense(boardSize uint8) []Move {
 		}
 	} else if pm.Direction == 3 { // anti diagonal
 		for i, defense := range pm.Pattern.Defense {
-			moves[i] = Move{pm.Shift + defense - pm.Index + boardSize - 1, pm.Shift + defense}
+			// moves[i] = Move{pm.Shift + defense - pm.Index + boardSize - 1, pm.Shift + defense}
+			moves[i] = Move{pm.Shift + defense, pm.Shift + defense - pm.Index + boardSize - 1}
 		}
 	}
 	return moves

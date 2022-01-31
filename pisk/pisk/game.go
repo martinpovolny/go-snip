@@ -33,3 +33,12 @@ func (g *Game) LoadFromFile(filename string) int {
 	}
 	return len(g.Log.Moves)
 }
+
+func (g *Game) LoadFromArray(moves []Move) int {
+	var player uint8
+	for _, move := range moves {
+		g.Play(move, player)
+		player = 1 - player
+	}
+	return len(g.Log.Moves)
+}
