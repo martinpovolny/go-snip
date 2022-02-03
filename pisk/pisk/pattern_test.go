@@ -1,7 +1,6 @@
-package pisk_test
+package pisk
 
 import (
-	"martinp/piskvorky/pisk"
 	"testing"
 )
 
@@ -12,12 +11,12 @@ func TestMatch(t *testing.T) {
 	}
 
 	type testPattern struct {
-		pattern pisk.Pattern
+		pattern Pattern
 		cases   []testCase
 	}
 
 	var tests []testPattern = []testPattern{{
-		pattern: pisk.Pattern{
+		pattern: Pattern{
 			Pat:     0b00000000000000000000000000001110,
 			Space:   0b00000000000000000000000000110001,
 			NShifts: 28,

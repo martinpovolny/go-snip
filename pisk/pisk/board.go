@@ -76,17 +76,17 @@ func (b *Board) Print() {
 }
 
 func (b *Board) Place(x, y uint8) {
-	b.vertical[y] |= 1 << x
-	b.horizontal[x] |= 1 << y
-	b.mainDiagonal[x+y] |= 1 << x
-	b.antiDiagonal[x-y+b.size-1] |= 1 << x
+	b.vertical[y] |= uint64(1) << x
+	b.horizontal[x] |= uint64(1) << y
+	b.mainDiagonal[x+y] |= uint64(1) << x
+	b.antiDiagonal[x-y+b.size-1] |= uint64(1) << x
 }
 
 func (b *Board) Unplace(x, y uint8) {
-	b.vertical[y] &= ^(1 << x)
-	b.horizontal[x] &= ^(1 << y)
-	b.mainDiagonal[x+y] &= ^(1 << x)
-	b.antiDiagonal[x-y+b.size-1] &= ^(1 << x)
+	b.vertical[y] &= ^(uint64(1) << x)
+	b.horizontal[x] &= ^(uint64(1) << y)
+	b.mainDiagonal[x+y] &= ^(uint64(1) << x)
+	b.antiDiagonal[x-y+b.size-1] &= ^(uint64(1) << x)
 }
 
 func (b *Board) Taken(x, y uint8) bool {

@@ -124,6 +124,7 @@ func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMat
 	}
 
 	for _, threat := range threats {
+		// fmt.Println("Searching threat:", threat)
 		for i := uint8(0); i < gb.size; i++ {
 			found, shift := threat.MatchWithSpace(board1.vertical[i], board2.vertical[i])
 			if found {
@@ -134,10 +135,18 @@ func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMat
 				results = append(results, PatternMatch{threat, i, shift, 1})
 			}
 			found, shift = threat.MatchWithSpace(board1.mainDiagonal[i], board2.mainDiagonal[i])
+			//if board1.mainDiagonal[i] != 0 {
+			//	fmt.Println(strconv.FormatInt(int64(board1.mainDiagonal[i]), 2))
+			//}
 			if found {
 				results = append(results, PatternMatch{threat, i, shift, 2})
 			}
 			found, shift = threat.MatchWithSpace(board1.antiDiagonal[i], board2.antiDiagonal[i])
+			// if board1.antiDiagonal[i] != 0 {
+			// 	fmt.Println(i)
+			// 	fmt.Println("\t", strconv.FormatInt(int64(board1.antiDiagonal[i]), 2))
+			// 	fmt.Println("\t", strconv.FormatInt(int64(board2.antiDiagonal[i]), 2))
+			// }
 			if found {
 				results = append(results, PatternMatch{threat, i, shift, 3})
 			}
@@ -147,7 +156,7 @@ func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMat
 }
 
 func (gb *GameBoard) Print() {
-	fmt.Println(". 0 1 2 3 4 5 6 7 8 9 0")
+	fmt.Println(". 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1")
 	for i := uint8(0); i < gb.size; i++ {
 		fmt.Printf("%v ", i%10)
 		for j := uint8(0); j < gb.size; j++ {

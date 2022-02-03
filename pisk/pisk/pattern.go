@@ -24,7 +24,7 @@ func (p Pattern) MatchIndex(xs uint64) (bool, uint8) {
 }
 
 func (p Pattern) MatchWithSpace(xs uint64, os uint64) (bool, uint8) {
-	occupied := xs | os
+	var occupied uint64 = xs | os
 	for i := 0; i < int(p.NShifts); i++ {
 		if (xs&p.Pat) == p.Pat && // crosses are where expected
 			((^occupied)&p.Space) == p.Space { // spaces (not os) is where expected

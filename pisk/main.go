@@ -49,9 +49,9 @@ func interactiveGameRound(game *pisk.Game, player uint8) (bool, uint8) {
 	printMatches(threats, player)
 	threats = game.Board.SearchThreats(pisk.ThreatPatterns, 1-player)
 	printMatches(threats, 1-player)
-	move, score := strategy.NextMove(&game.Board, player)
+	//move, score := strategy.NextMove(&game.Board, player)
 	//move, score := strategy.AttackMove(&game.Board, player)
-	fmt.Printf("Computer move: %v, score: %v\n", move, score)
+	//fmt.Printf("Computer move: %v, score: %v\n", move, score)
 
 	for {
 		move := readMoveFromInput(player)
