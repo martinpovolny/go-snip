@@ -135,20 +135,22 @@ func (gb *GameBoard) SearchThreats(threats []Pattern, player uint8) []PatternMat
 				results = append(results, PatternMatch{threat, i, shift, 1})
 			}
 			found, shift = threat.MatchWithSpace(board1.mainDiagonal[i], board2.mainDiagonal[i])
-			//if board1.mainDiagonal[i] != 0 {
-			//	fmt.Println(strconv.FormatInt(int64(board1.mainDiagonal[i]), 2))
-			//}
 			if found {
 				results = append(results, PatternMatch{threat, i, shift, 2})
 			}
 			found, shift = threat.MatchWithSpace(board1.antiDiagonal[i], board2.antiDiagonal[i])
-			// if board1.antiDiagonal[i] != 0 {
-			// 	fmt.Println(i)
-			// 	fmt.Println("\t", strconv.FormatInt(int64(board1.antiDiagonal[i]), 2))
-			// 	fmt.Println("\t", strconv.FormatInt(int64(board2.antiDiagonal[i]), 2))
-			// }
 			if found {
 				results = append(results, PatternMatch{threat, i, shift, 3})
+			}
+
+			j := i + board1.size
+			found, shift = threat.MatchWithSpace(board1.mainDiagonal[j], board2.mainDiagonal[j])
+			if found {
+				results = append(results, PatternMatch{threat, j, shift, 2})
+			}
+			found, shift = threat.MatchWithSpace(board1.antiDiagonal[j], board2.antiDiagonal[j])
+			if found {
+				results = append(results, PatternMatch{threat, j, shift, 3})
 			}
 		}
 	}

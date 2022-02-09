@@ -35,6 +35,7 @@ func TestNextMove(t *testing.T) {
 	for _, tc := range tests {
 		game := pisk.NewGame(32, true)
 		numMoves := game.LoadFromArray(tc.game)
+		//game.Board.Print()
 		played, _ := strategy.NextMove(&game.Board, uint8(numMoves%2))
 
 		found := false

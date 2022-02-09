@@ -18,61 +18,61 @@ var ThreatPatterns []Pattern = []Pattern{
 		NShifts: 28,
 		Value:   2,
 		Defense: []uint8{0, 4},
-	}, /*
-		{
-			Pat:     0b011100,
-			Space:   0b100011, // fixme: need 2 spaces on either side
-			NShifts: 28,
-			Value:   2,
-			Defense: []uint8{1, 5},
-		},
-		{
-			Pat:     0b010110,
-			Space:   0b101001,
-			NShifts: 26,
-			Value:   2,
-			Defense: []uint8{0, 3},
-		},
-		{
-			Pat:     0b011010,
-			Space:   0b100101,
-			NShifts: 26,
-			Value:   2,
-			Defense: []uint8{2, 0, 5},
-		},
-		{
-			Pat:     0b011110,
-			Space:   0b100001,
-			NShifts: 26,
-			Value:   128, // >> MustDefend
-			Defense: []uint8{0, 5},
-		},
-		{
-			Pat:     0b01111, // only one space, FIXME? check that the 2nd space is not present?
-			Space:   0b10000,
-			NShifts: 27,
-			Value:   101, // >> MustDefend
-			Defense: []uint8{4},
-		},
-		{
-			Pat:     0b11110,
-			Space:   0b00001,
-			NShifts: 27,
-			Value:   101, // >> MustDefend
-			Defense: []uint8{0},
-		},
-		{
-			Pat:     0b11111,
-			Space:   0b00000,
-			NShifts: 27,
-			Value:   MaxValue,
-			Defense: []uint8{},
-		},*/
+	},
+	{
+		Pat:     0b011100,
+		Space:   0b100011, // fixme: need 2 spaces on either side
+		NShifts: 28,
+		Value:   2,
+		Defense: []uint8{1, 5},
+	},
+	{
+		Pat:     0b010110,
+		Space:   0b101001,
+		NShifts: 26,
+		Value:   2,
+		Defense: []uint8{0, 3},
+	},
+	{
+		Pat:     0b011010,
+		Space:   0b100101,
+		NShifts: 26,
+		Value:   2,
+		Defense: []uint8{2, 0, 5},
+	},
+	{
+		Pat:     0b011110,
+		Space:   0b100001,
+		NShifts: 26,
+		Value:   128, // >> MustDefend
+		Defense: []uint8{0, 5},
+	},
+	{
+		Pat:     0b01111, // only one space, FIXME? check that the 2nd space is not present?
+		Space:   0b10000,
+		NShifts: 27,
+		Value:   101, // >> MustDefend
+		Defense: []uint8{4},
+	},
+	{
+		Pat:     0b11110,
+		Space:   0b00001,
+		NShifts: 27,
+		Value:   101, // >> MustDefend
+		Defense: []uint8{0},
+	},
+	{
+		Pat:     0b11111,
+		Space:   0b00000,
+		NShifts: 27,
+		Value:   MaxValue,
+		Defense: []uint8{},
+	},
 }
 
 func (s Depth1Strategy) AttackMove(gb *GameBoard, player uint8) (Move, uint8) {
 	moves := gb.PossibleMoves()
-	//moves := []Move{{17, 15}}
+	//moves := []Move{{7, 4}}
 	fmt.Printf("Possible move for player %v : %v\n", player, moves)
 	if len(moves) == 0 {
 		return Move{gb.size / 2, gb.size / 2}, 0
@@ -91,7 +91,7 @@ func (s Depth1Strategy) AttackMove(gb *GameBoard, player uint8) (Move, uint8) {
 		matches := testGb.SearchThreats(ThreatPatterns, player)
 		bestValue = 0
 		for _, match := range matches {
-			// match.Print()
+			match.Print()
 			if match.Pattern.Value > bestValue {
 				bestValue = match.Pattern.Value
 			}
