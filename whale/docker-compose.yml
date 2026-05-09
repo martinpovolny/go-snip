@@ -1,0 +1,68 @@
+services:
+  whale:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - whale-db:/app/db
+    environment:
+      APP_DB_PATH: /app/db/app.db
+      APP_KAFKA_BROKERS: redpanda:9092
+      APP_KAFKA_TOPIC: people
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["rpk topic create people --brokers redpanda:9092 || true"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: "no"
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"   # Kafka API (external)
+      - "18082:18082"   # HTTP Proxy (external)
+      - "18081:18081"   # Schema Registry (external)
+      - "9644:9644"     # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    ports:
+      - "8088:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+volumes:
+  whale-db:
+  redpanda-data:
