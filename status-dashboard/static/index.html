@@ -111,7 +111,7 @@ function e(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function statusBadge(p){
   if(p.connected) return `<span class="badge g"><span class="dot dg"></span>connected</span>`;
   if(p.handshake_ts) return `<span class="badge a"><span class="dot da"></span>idle</span>`;
-  return `<span class="badge r"><span class="dot dr"></span>never</span>`;
+  return `<span class="badge r"><span class="dot dr"></span>no handshake</span>`;
 }
 
 function pingCell(p){

@@ -5,8 +5,8 @@ Wants=wg-quick@wg0.service
 
 [Service]
 ExecStart=/opt/status-dashboard/status-dashboard \
-    --addr 127.0.0.1:9999 \
-    --names /opt/status-dashboard/names.conf \
+    --addr 0.0.0.0:9999 \
+    --hosts /etc/hosts \
     --ttl 15s
 Restart=always
 RestartSec=5

@@ -24,22 +24,22 @@ var staticFiles embed.FS
 // ---------- types ----------
 
 type Peer struct {
-	Iface          string  `json:"iface"`
-	Name           string  `json:"name"`
-	Pubkey         string  `json:"pubkey"`
-	PubkeyShort    string  `json:"pubkey_short"`
-	Endpoint       string  `json:"endpoint"`
-	AllowedIPs     string  `json:"allowed_ips"`
-	IP             string  `json:"ip"`
-	Handshake      string  `json:"handshake"`
-	HandshakeTS    int64   `json:"handshake_ts"`
-	Connected      bool    `json:"connected"`
-	RxBytes        int64   `json:"rx_bytes"`
-	TxBytes        int64   `json:"tx_bytes"`
-	RxHuman        string  `json:"rx"`
-	TxHuman        string  `json:"tx"`
-	PingAlive      *bool   `json:"ping_alive"`
-	PingRTTms      *float64 `json:"ping_rtt_ms"`
+	Iface       string   `json:"iface"`
+	Name        string   `json:"name"`
+	Pubkey      string   `json:"pubkey"`
+	PubkeyShort string   `json:"pubkey_short"`
+	Endpoint    string   `json:"endpoint"`
+	AllowedIPs  string   `json:"allowed_ips"`
+	IP          string   `json:"ip"`
+	Handshake   string   `json:"handshake"`
+	HandshakeTS int64    `json:"handshake_ts"`
+	Connected   bool     `json:"connected"`
+	RxBytes     int64    `json:"rx_bytes"`
+	TxBytes     int64    `json:"tx_bytes"`
+	RxHuman     string   `json:"rx"`
+	TxHuman     string   `json:"tx"`
+	PingAlive   *bool    `json:"ping_alive"`
+	PingRTTms   *float64 `json:"ping_rtt_ms"`
 }
 
 type Status struct {
@@ -48,33 +48,43 @@ type Status struct {
 	GeneratedAt float64 `json:"generated_at"`
 }
 
-// ---------- names ----------
+// ---------- hosts parser ----------
 
-func loadNames(path string) map[string]string {
-	m := make(map[string]string)
-	if path == "" {
-		return m
-	}
+// parseHosts reads /etc/hosts and returns ip → first hostname.
+// Loopback addresses and comment lines are skipped.
+func parseHosts(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return m
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
+
+	names := make(map[string]string)
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			m[parts[0]] = parts[1]
+		// strip inline comments
+		line, _, _ = strings.Cut(line, "#")
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ip := fields[0]
+		if strings.HasPrefix(ip, "127.") || ip == "::1" {
+			continue
+		}
+		// first hostname wins; subsequent aliases ignored
+		if _, exists := names[ip]; !exists {
+			names[ip] = fields[1]
 		}
 	}
-	return m
+	return names, sc.Err()
 }
 
-// ---------- wg ----------
+// ---------- wg runtime ----------
 
 func wgDump() ([]Peer, error) {
 	out, err := exec.Command("wg", "show", "all", "dump").Output()
@@ -131,7 +141,7 @@ func ping(ip string) (alive bool, rttMs *float64) {
 	// parse "rtt min/avg/max/mdev = X/Y/Z/W ms"
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.HasPrefix(line, "rtt") {
-			// "rtt min/avg/max/mdev = 1.234/2.345/3.456/0.123 ms"
+			// "rtt min/avg/max/mdev = 1.2/2.3/3.4/0.1 ms"
 			parts := strings.Fields(line)
 			if len(parts) >= 4 {
 				vals := strings.Split(parts[3], "/")
@@ -164,7 +174,7 @@ func fmtBytes(n int64) string {
 
 func fmtHandshake(ts int64) string {
 	if ts == 0 {
-		return "never"
+		return "—"
 	}
 	age := time.Now().Unix() - ts
 	switch {
@@ -201,7 +211,11 @@ func (c *Collector) Get() *Status {
 }
 
 func (c *Collector) collect() *Status {
-	names := loadNames(c.namesPath)
+	names, err := parseHosts(c.namesPath)
+	if err != nil {
+		log.Printf("parseHosts: %v", err)
+		names = map[string]string{}
+	}
 	peers, err := wgDump()
 	if err != nil {
 		return &Status{Error: err.Error(), GeneratedAt: float64(time.Now().UnixMilli()) / 1000}
@@ -230,7 +244,7 @@ func (c *Collector) collect() *Status {
 	now := time.Now().Unix()
 	for i := range peers {
 		p := &peers[i]
-		p.Name = names[p.Pubkey]
+		p.Name = names[p.IP]
 		p.Handshake = fmtHandshake(p.HandshakeTS)
 		p.Connected = p.HandshakeTS > 0 && (now-p.HandshakeTS) < 180
 		p.RxHuman = fmtBytes(p.RxBytes)
@@ -243,12 +257,15 @@ func (c *Collector) collect() *Status {
 // ---------- HTTP ----------
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:9999", "listen address")
-	names := flag.String("names", "", "path to pubkey→name file")
-	ttl := flag.Duration("ttl", 15*time.Second, "cache TTL (ping is slow)")
+	addr   := flag.String("addr",   "127.0.0.1:9999",        "listen address")
+	hosts  := flag.String("hosts",  "/etc/hosts",              "hosts file to resolve peer IPs to names")
+	ttl    := flag.Duration("ttl",  15*time.Second,           "cache TTL (ping is slow)")
 	flag.Parse()
 
-	col := &Collector{namesPath: *names, ttl: *ttl}
+	col := &Collector{namesPath: *hosts, ttl: *ttl}
+
+	// warm cache on startup so first page load is instant
+	go col.Get()
 
 	// /status — JSON API
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +287,8 @@ func main() {
 		w.Write(data)
 	})
 
-	log.Printf("wg-status listening on http://%s", *addr)
+	log.Printf("wg-status listening on http://%s  hosts=%s  ttl=%s",
+		*addr, *hosts, *ttl)
 	if err := http.ListenAndServe(*addr, nil); err != nil {
 		log.Fatal(err)
 	}
