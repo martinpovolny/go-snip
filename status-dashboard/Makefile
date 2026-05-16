@@ -1,36 +1,37 @@
-# wg-status Makefile
-# Default target: build for the local machine
-# 'make linux' cross-compiles for Oracle Cloud Ampere (linux/arm64)
+# status-dashboard Makefile
 
 BINARY  := status-dashboard
 LDFLAGS := -ldflags="-s -w"
+REMOTE  := ora-m
+DEPLOY_DIR := /opt/status-dashboard
 
-.PHONY: build linux-amd64 linux-arm64 install deploy clean
+.PHONY: build linux-amd64 linux-arm64 deploy install clean
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
 
-# Oracle Cloud free tier uses Ampere ARM64
 linux-arm64:
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BINARY)-linux-arm64 .
 
-# Intel/AMD Oracle shape
 linux-amd64:
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY)-linux-amd64 .
 
-# first-time install: copies binary + service file and enables the unit
-install: linux-amd64
-	ssh ora-m 'sudo mkdir -p /opt/status-dashboard'
-	scp $(BINARY)-linux-amd64 ora-m:/tmp/$(BINARY)
-	ssh ora-m 'sudo mv /tmp/$(BINARY) /opt/status-dashboard/$(BINARY) && sudo chmod +x /opt/status-dashboard/$(BINARY)'
-	scp $(BINARY).service ora-m:/tmp/$(BINARY).service
-	ssh ora-m 'sudo mv /tmp/$(BINARY).service /etc/systemd/system/$(BINARY).service && sudo systemctl daemon-reload && sudo systemctl enable --now $(BINARY)'
-
-# scp binary + restart
+# Routine update: build, copy binary + config, restart service
 deploy: linux-amd64
-	scp $(BINARY)-linux-amd64 ora-m:/tmp/$(BINARY)
-	ssh ora-m 'sudo mv /tmp/$(BINARY) /opt/status-dashboard/$(BINARY) && sudo chmod +x /opt/status-dashboard/$(BINARY) && sudo systemctl restart $(BINARY)'
+	scp $(BINARY)-linux-amd64 $(REMOTE):/tmp/$(BINARY)
+	scp monitors.conf $(REMOTE):/tmp/monitors.conf
+	ssh $(REMOTE) 'sudo mkdir -p $(DEPLOY_DIR) && \
+	  sudo mv /tmp/$(BINARY) $(DEPLOY_DIR)/$(BINARY) && \
+	  sudo chmod +x $(DEPLOY_DIR)/$(BINARY) && \
+	  sudo mv /tmp/monitors.conf $(DEPLOY_DIR)/monitors.conf && \
+	  sudo systemctl restart $(BINARY)'
+
+# First-time setup: deploy everything including the systemd unit
+install: deploy
+	scp $(BINARY).service $(REMOTE):/tmp/$(BINARY).service
+	ssh $(REMOTE) 'sudo mv /tmp/$(BINARY).service /etc/systemd/system/$(BINARY).service && \
+	  sudo systemctl daemon-reload && \
+	  sudo systemctl enable $(BINARY)'
 
 clean:
 	rm -f $(BINARY) $(BINARY)-linux-arm64 $(BINARY)-linux-amd64
-
