@@ -1,0 +1,16 @@
+[Unit]
+Description=WireGuard peer status dashboard
+After=network.target wg-quick@wg0.service
+Wants=wg-quick@wg0.service
+
+[Service]
+ExecStart=/opt/status-dashboard/status-dashboard \
+    --addr 127.0.0.1:9999 \
+    --names /opt/status-dashboard/names.conf \
+    --ttl 15s
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
