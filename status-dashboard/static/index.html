@@ -98,6 +98,7 @@ tr:hover td{background:var(--bg)}
 <div class="tabs">
   <div class="tab active" id="tab-peers" onclick="switchTab('peers')">WireGuard peers</div>
   <div class="tab" id="tab-monitors" onclick="switchTab('monitors')">HTTP monitors</div>
+  <div class="tab" id="tab-alerts" onclick="switchTab('alerts')">Alerts</div>
 </div>
 
 <main>
@@ -142,6 +143,23 @@ tr:hover td{background:var(--bg)}
           </tr>
         </thead>
         <tbody id="tbody-monitors"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- alerts panel -->
+  <div class="panel" id="panel-alerts">
+    <div class="wrap">
+      <table aria-label="Alert history">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Monitor</th>
+            <th>Event</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-alerts"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -287,15 +305,40 @@ function fmtAge(ts){
   return `${Math.floor(age/3600)}h ago`;
 }
 
+// ---------- alerts ----------
+
+function fmtTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+}
+
+function renderAlerts(data) {
+  const recs = data || [];
+  document.getElementById('tbody-alerts').innerHTML = recs.length === 0
+    ? `<tr><td colspan="4" class="empty">No alerts recorded.</td></tr>`
+    : recs.map(r => {
+        const evtBadge = r.event === 'down'
+          ? `<span class="badge r">down</span>`
+          : `<span class="badge g">recovery</span>`;
+        return `<tr>
+          <td class="mono dim" style="white-space:nowrap">${e(fmtTime(r.sent_at))}</td>
+          <td><span class="name">${e(r.monitor)}</span></td>
+          <td>${evtBadge}</td>
+          <td class="dim">${e(r.message)}</td>
+        </tr>`;
+      }).join('');
+}
+
 // ---------- refresh ----------
 
 async function refresh(){
   const spin = document.getElementById('spin');
   spin.style.display = '';
   try {
-    const [peersResp, monsResp] = await Promise.allSettled([
+    const [peersResp, monsResp, alertsResp] = await Promise.allSettled([
       fetch('/status'),
       fetch('/monitors-status'),
+      fetch('/notifications?limit=100'),
     ]);
 
     if(peersResp.status === 'fulfilled' && peersResp.value.ok)
@@ -311,6 +354,9 @@ async function refresh(){
       document.getElementById('err-monitors').style.display = '';
       document.getElementById('err-monitors').textContent = 'Could not reach /monitors-status';
     }
+
+    if(alertsResp.status === 'fulfilled' && alertsResp.value.ok)
+      renderAlerts(await alertsResp.value.json());
 
     document.getElementById('ts').textContent = 'updated ' + new Date().toLocaleTimeString();
   } finally { spin.style.display = 'none'; }

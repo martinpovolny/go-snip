@@ -162,15 +162,38 @@ func (s *Store) Notifications(limit int) ([]NotificationRecord, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) LoadAlertState(monitor string) (consecutive int, alerted bool) {
+// LoadAlertState returns persisted alert state. If no row exists it infers
+// consecutive failure count from recent monitor_checks history so a restart
+// mid-outage doesn't silently reset the counter.
+func (s *Store) LoadAlertState(monitor string, threshold int) (consecutive int, alerted bool) {
 	var a int
 	err := s.db.QueryRow(
 		`SELECT consecutive, alerted FROM monitor_alert_state WHERE monitor = ?`, monitor,
 	).Scan(&consecutive, &a)
-	if err != nil {
-		return 0, false // row not found or error → fresh state
+	if err == nil {
+		return consecutive, a == 1
 	}
-	return consecutive, a == 1
+	// No persisted row — infer from recent check history.
+	rows, err := s.db.Query(
+		`SELECT up FROM monitor_checks WHERE monitor = ? ORDER BY checked_at DESC LIMIT ?`,
+		monitor, threshold*2,
+	)
+	if err != nil {
+		return 0, false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var up int
+		if err := rows.Scan(&up); err != nil {
+			break
+		}
+		if up == 0 {
+			consecutive++
+		} else {
+			break
+		}
+	}
+	return consecutive, consecutive >= threshold
 }
 
 func (s *Store) SaveAlertState(monitor string, consecutive int, alerted bool) error {

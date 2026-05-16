@@ -47,7 +47,7 @@ func (n *Notifier) Notify(statuses []MonitorStatus) {
 		if !seen {
 			st = &monitorState{}
 			if n.store != nil {
-				st.consecutive, st.alerted = n.store.LoadAlertState(s.Name)
+				st.consecutive, st.alerted = n.store.LoadAlertState(s.Name, failuresBeforeAlert)
 			}
 			n.state[s.Name] = st
 			if st.consecutive == 0 && !st.alerted {
