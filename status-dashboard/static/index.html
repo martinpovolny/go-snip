@@ -74,6 +74,13 @@ tr:hover td{background:var(--bg)}
 .dim{color:var(--muted);font-size:12px}
 .mono{font-family:var(--mono);font-size:12px}
 .empty{text-align:center;padding:3rem;color:var(--muted)}
+
+/* uptime bar */
+.ubar{display:flex;gap:1px;align-items:center}
+.ub{width:5px;height:18px;border-radius:1px;flex-shrink:0;cursor:default}
+.ub-none{background:var(--border)}
+.ub-up{background:var(--c-green)}
+.ub-down{background:var(--c-red)}
 </style>
 </head>
 <body>
@@ -130,6 +137,7 @@ tr:hover td{background:var(--bg)}
             <th>URL</th>
             <th>Status</th>
             <th>Response</th>
+            <th>Last 4h</th>
             <th>Checked</th>
           </tr>
         </thead>
@@ -205,7 +213,40 @@ function renderPeers(data){
 
 // ---------- monitors ----------
 
-function renderMonitors(data){
+const HISTORY_SLOTS = 48; // 4h at 5-min intervals
+let historyCache = {}; // name → []
+
+function uptimeBar(name) {
+  const history = historyCache[name] || [];
+  // API returns newest-first; reverse so oldest is left
+  const pts = [...history].reverse();
+  const pad = Math.max(0, HISTORY_SLOTS - pts.length);
+  const blocks = [
+    ...Array(pad).fill(null),
+    ...pts,
+  ].map(p => {
+    if (!p) return `<span class="ub ub-none" title="no data"></span>`;
+    const t = new Date(p.checked_at * 1000).toLocaleTimeString();
+    const tip = p.up
+      ? `${t}: ${p.status_code} (${p.response_ms}ms)`
+      : `${t}: down${p.error ? ' — ' + p.error : ''}`;
+    return `<span class="ub ${p.up ? 'ub-up' : 'ub-down'}" title="${e(tip)}"></span>`;
+  }).join('');
+  return `<div class="ubar">${blocks}</div>`;
+}
+
+async function fetchHistory(monitors) {
+  const results = await Promise.all(
+    monitors.map(m =>
+      fetch(`/monitors-history?monitor=${encodeURIComponent(m.name)}&limit=${HISTORY_SLOTS}`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => [])
+    )
+  );
+  monitors.forEach((m, i) => { historyCache[m.name] = results[i] || []; });
+}
+
+function renderMonitors(data) {
   const errEl = document.getElementById('err-monitors');
   errEl.style.display = 'none';
 
@@ -220,7 +261,7 @@ function renderMonitors(data){
   ].map(([l,v,c])=>`<div class="stat"><div class="stat-l">${l}</div><div class="stat-v"${c?` style="color:${c}"`:''}>${v}</div></div>`).join('');
 
   document.getElementById('tbody-monitors').innerHTML = monitors.length === 0
-    ? `<tr><td colspan="5" class="empty">No monitors configured.</td></tr>`
+    ? `<tr><td colspan="6" class="empty">No monitors configured.</td></tr>`
     : monitors.map(m => {
         const badge = m.up
           ? `<span class="badge g"><span class="dot dg"></span>${e(m.status_code)}</span>`
@@ -233,6 +274,7 @@ function renderMonitors(data){
           <td class="mono dim"><a href="${e(m.url)}" target="_blank" rel="noopener" style="color:inherit">${e(m.url)}</a></td>
           <td>${badge}</td>
           <td>${rtt}</td>
+          <td>${uptimeBar(m.name)}</td>
           <td class="dim">${age}</td>
         </tr>`;
       }).join('');
@@ -261,9 +303,11 @@ async function refresh(){
     else
       document.getElementById('err-peers').textContent = 'Could not reach /status';
 
-    if(monsResp.status === 'fulfilled' && monsResp.value.ok)
-      renderMonitors(await monsResp.value.json());
-    else {
+    if(monsResp.status === 'fulfilled' && monsResp.value.ok) {
+      const monitors = await monsResp.value.json();
+      await fetchHistory(monitors);
+      renderMonitors(monitors);
+    } else {
       document.getElementById('err-monitors').style.display = '';
       document.getElementById('err-monitors').textContent = 'Could not reach /monitors-status';
     }

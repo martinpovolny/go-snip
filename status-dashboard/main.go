@@ -6,6 +6,8 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -13,11 +15,17 @@ import (
 var staticFiles embed.FS
 
 func main() {
-	addr     := flag.String("addr",     "0.0.0.0:9999", "listen address")
-	hosts    := flag.String("hosts",    "/etc/hosts",   "hosts file to resolve peer IPs to names")
-	monitors := flag.String("monitors", "",             "monitors config file")
-	ttl      := flag.Duration("ttl",    15*time.Second, "cache TTL for WireGuard peers (ping is slow)")
+	addr      := flag.String("addr",       "0.0.0.0:9999",          "listen address")
+	hosts     := flag.String("hosts",      "/etc/hosts",             "hosts file to resolve peer IPs to names")
+	monitors  := flag.String("monitors",   "",                       "monitors config file")
+	dbPath    := flag.String("db",         "",                       "sqlite database path for monitor history")
+	ntfyURL   := flag.String("ntfy-url",   "http://localhost:2586",  "ntfy server base URL")
+	ntfyTopic := flag.String("ntfy-topic", "status-dashboard",       "ntfy topic for monitor alerts")
+	ntfyUser  := flag.String("ntfy-user",  "agents",                 "ntfy username")
+	ttl       := flag.Duration("ttl",      15*time.Second,           "cache TTL for WireGuard peers (ping is slow)")
 	flag.Parse()
+
+	ntfyPass := os.Getenv("NTFY_PASSWORD")
 
 	// WireGuard peers
 	col := &Collector{namesPath: *hosts, ttl: *ttl}
@@ -37,8 +45,49 @@ func main() {
 		if err != nil {
 			log.Fatalf("load monitors: %v", err)
 		}
+		log.Printf("monitors: loaded %d endpoints from %s", len(mons), *monitors)
+
 		mc := newMonitorCollector(mons, *ttl)
-		go mc.Get()
+
+		var store *Store
+		if *dbPath != "" {
+			store, err = NewStore(*dbPath, defaultKeep)
+			if err != nil {
+				log.Fatalf("open store: %v", err)
+			}
+			log.Printf("store: opened %s (keep %d rows/monitor)", *dbPath, defaultKeep)
+		}
+
+		var notifier *Notifier
+		if ntfyPass != "" {
+			notifier = NewNotifier(*ntfyURL, *ntfyTopic, *ntfyUser, ntfyPass, store)
+			log.Printf("ntfy: will publish alerts to %s/%s", *ntfyURL, *ntfyTopic)
+		} else {
+			log.Printf("ntfy: NTFY_PASSWORD not set, notifications disabled")
+		}
+
+		if store != nil {
+			http.HandleFunc("/notifications", func(w http.ResponseWriter, r *http.Request) {
+				limit := 100
+				if l := r.URL.Query().Get("limit"); l != "" {
+					if n, err := strconv.Atoi(l); err == nil && n > 0 {
+						limit = n
+					}
+				}
+				recs, err := store.Notifications(limit)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				if err := json.NewEncoder(w).Encode(recs); err != nil {
+					log.Printf("encode: %v", err)
+				}
+			})
+		}
+
+		mc.StartPoller(store, notifier, 5*time.Minute)
 
 		http.HandleFunc("/monitors-status", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -47,7 +96,32 @@ func main() {
 				log.Printf("encode: %v", err)
 			}
 		})
-		log.Printf("monitors: loaded %d endpoints from %s", len(mons), *monitors)
+
+		if store != nil {
+			http.HandleFunc("/monitors-history", func(w http.ResponseWriter, r *http.Request) {
+				monitor := r.URL.Query().Get("monitor")
+				if monitor == "" {
+					http.Error(w, "missing ?monitor=", http.StatusBadRequest)
+					return
+				}
+				limit := 288 // default: last 24h at 5-min intervals
+				if l := r.URL.Query().Get("limit"); l != "" {
+					if n, err := strconv.Atoi(l); err == nil && n > 0 {
+						limit = n
+					}
+				}
+				history, err := store.History(monitor, limit)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				if err := json.NewEncoder(w).Encode(history); err != nil {
+					log.Printf("encode: %v", err)
+				}
+			})
+		}
 	}
 
 	// Dashboard

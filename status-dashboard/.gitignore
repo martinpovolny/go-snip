@@ -1,0 +1,7 @@
+.env
+status-dashboard
+status-dashboard-linux-amd64
+status-dashboard-linux-arm64
+tmp/
+.playwright-mcp/
+wg-status

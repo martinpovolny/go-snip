@@ -4,10 +4,12 @@ After=network.target wg-quick@wg0.service
 Wants=wg-quick@wg0.service
 
 [Service]
+EnvironmentFile=/opt/status-dashboard/.env
 ExecStart=/opt/status-dashboard/status-dashboard \
     --addr 0.0.0.0:9999 \
     --hosts /etc/hosts \
     --monitors /opt/status-dashboard/monitors.conf \
+    --db /opt/status-dashboard/monitors.db \
     --ttl 15s
 Restart=always
 RestartSec=5

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -101,6 +102,37 @@ func (mc *MonitorCollector) checkAll() []MonitorStatus {
 		statuses[r.i] = r.status
 	}
 	return statuses
+}
+
+// StartPoller runs a background goroutine that checks all monitors every
+// interval, updates the cache, records to store, and fires notifications.
+func (mc *MonitorCollector) StartPoller(store *Store, notifier *Notifier, interval time.Duration) {
+	go func() {
+		mc.poll(store, notifier)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			mc.poll(store, notifier)
+		}
+	}()
+}
+
+func (mc *MonitorCollector) poll(store *Store, notifier *Notifier) {
+	statuses := mc.checkAll()
+	mc.mu.Lock()
+	mc.cached = statuses
+	mc.fetchedAt = time.Now()
+	mc.mu.Unlock()
+	if store != nil {
+		for _, s := range statuses {
+			if err := store.Record(s); err != nil {
+				log.Printf("store.Record %s: %v", s.Name, err)
+			}
+		}
+	}
+	if notifier != nil {
+		notifier.Notify(statuses)
+	}
 }
 
 func (mc *MonitorCollector) check(m Monitor) MonitorStatus {

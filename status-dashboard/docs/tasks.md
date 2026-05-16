@@ -15,13 +15,19 @@
 - [x] Refactor `main.go` → `main.go`, `wg.go`, `hosts.go`, `monitors.go`
 - [x] Fix Makefile: `deploy` (routine) vs `install` (first-time, depends on deploy)
 - [x] Rename "wg-status" → "status-dashboard" in UI
+- [x] SQLite ring buffer (`store.go`) — `modernc.org/sqlite`, keeps 2016 rows/monitor (~1 week at 5 min)
+- [x] Background poller goroutine — checks all monitors every 5 min, stores to DB
+- [x] `/monitors-history?monitor=X&limit=N` endpoint
+- [x] ntfy notifications on monitor state change (down + recovery), basic auth via `NTFY_PASSWORD` env var
+- [x] `.env` / `.env.example` pattern, `.gitignore`, `EnvironmentFile=` in systemd unit
+- [x] Alert rate limiting: 2 consecutive failures before down alert, one alert per outage, immediate recovery alert
+- [x] `notifications` table in SQLite, `/notifications` endpoint, see `docs/alerting.md`
 
 ## In Progress
 
-- [ ] SQLite ring buffer (`store.go`) for HTTP monitor time-series
-- [ ] Background goroutine: check all monitors every 5 minutes (independent of browser)
+- [ ] (nothing active)
 
 ## Upcoming
 
 - [ ] Expose historical data via `/monitors-history` endpoint
-- [ ] Sparkline / uptime bar in the monitors tab UI
+- [x] Sparkline / uptime bar in the monitors tab UI (48 blocks = last 4h, grey=no data, green=up, red=down)
