@@ -23,11 +23,13 @@
 - [x] Alert rate limiting: 2 consecutive failures before down alert, one alert per outage, immediate recovery alert
 - [x] `notifications` table in SQLite, `/notifications` endpoint, see `docs/alerting.md`
 
-## In Progress
+## Done (continued)
 
-- [ ] (nothing active)
+- [x] Sparkline / uptime bar in the monitors tab UI (48 blocks = last 4h, grey=no data, green=up, red=down)
+- [x] Alerts tab — notifications log in the UI, refreshes with main poll loop
+- [x] Seed alert state from monitor_checks history when no persisted row exists
+- [x] Project cleanup: remove stale binaries and names.conf, gitignore .playwright-mcp/
 
 ## Upcoming
 
-- [ ] Expose historical data via `/monitors-history` endpoint
-- [x] Sparkline / uptime bar in the monitors tab UI (48 blocks = last 4h, grey=no data, green=up, red=down)
+- [ ] (nothing planned)
