@@ -1,0 +1,237 @@
+package main
+
+import "math/rand"
+
+const (
+	GridW = 8
+	GridH = 10
+
+	ColorNone   = 0
+	ColorRed    = 1
+	ColorGreen  = 2
+	ColorBlue   = 3
+	ColorYellow = 4
+	numColors   = 4
+)
+
+// Grid holds the board state. Row 0 is the top.
+type Grid struct {
+	Cells [GridH][GridW]int
+}
+
+// NewGrid creates a randomly filled grid with no pre-existing matches.
+func NewGrid() *Grid {
+	g := &Grid{}
+	for {
+		for r := 0; r < GridH; r++ {
+			for c := 0; c < GridW; c++ {
+				g.Cells[r][c] = rand.Intn(numColors) + 1
+			}
+		}
+		// resolve any initial matches by rerolling those cells
+		for {
+			matches := g.FindMatches()
+			if len(matches) == 0 {
+				break
+			}
+			for _, p := range matches {
+				g.Cells[p.R][p.C] = rand.Intn(numColors) + 1
+			}
+		}
+		break
+	}
+	return g
+}
+
+// Snapshot returns a 2D slice copy of the board (safe to read from other goroutines
+// only while the caller holds the game mutex).
+func (g *Grid) Snapshot() [][]int {
+	out := make([][]int, GridH)
+	for r := 0; r < GridH; r++ {
+		out[r] = make([]int, GridW)
+		copy(out[r], g.Cells[r][:])
+	}
+	return out
+}
+
+// Swap exchanges two adjacent cells.
+func (g *Grid) Swap(a, b Pos) {
+	g.Cells[a.R][a.C], g.Cells[b.R][b.C] = g.Cells[b.R][b.C], g.Cells[a.R][a.C]
+}
+
+// FindMatches returns the set of cells that are part of a match:
+//   - horizontal run of 3+
+//   - vertical run of 3+
+//   - 2×2 block of same color
+func (g *Grid) FindMatches() []Pos {
+	marked := map[Pos]bool{}
+
+	// horizontal runs of 3+
+	for r := 0; r < GridH; r++ {
+		for c := 0; c < GridW; {
+			clr := g.Cells[r][c]
+			if clr == ColorNone {
+				c++
+				continue
+			}
+			start := c
+			for c < GridW && g.Cells[r][c] == clr {
+				c++
+			}
+			if c-start >= 3 {
+				for i := start; i < c; i++ {
+					marked[Pos{r, i}] = true
+				}
+			}
+		}
+	}
+
+	// vertical runs of 3+
+	for c := 0; c < GridW; c++ {
+		for r := 0; r < GridH; {
+			clr := g.Cells[r][c]
+			if clr == ColorNone {
+				r++
+				continue
+			}
+			start := r
+			for r < GridH && g.Cells[r][c] == clr {
+				r++
+			}
+			if r-start >= 3 {
+				for i := start; i < r; i++ {
+					marked[Pos{i, c}] = true
+				}
+			}
+		}
+	}
+
+	// 2×2 blocks
+	for r := 0; r < GridH-1; r++ {
+		for c := 0; c < GridW-1; c++ {
+			clr := g.Cells[r][c]
+			if clr == ColorNone {
+				continue
+			}
+			if g.Cells[r][c+1] == clr && g.Cells[r+1][c] == clr && g.Cells[r+1][c+1] == clr {
+				marked[Pos{r, c}] = true
+				marked[Pos{r, c + 1}] = true
+				marked[Pos{r + 1, c}] = true
+				marked[Pos{r + 1, c + 1}] = true
+			}
+		}
+	}
+
+	result := make([]Pos, 0, len(marked))
+	for p := range marked {
+		result = append(result, p)
+	}
+	return result
+}
+
+// ClearMatches removes the given cells from the grid.
+func (g *Grid) ClearMatches(matches []Pos) {
+	for _, p := range matches {
+		g.Cells[p.R][p.C] = ColorNone
+	}
+}
+
+// ApplyGravity compacts each column downward (row GridH-1 = bottom).
+func (g *Grid) ApplyGravity() {
+	for c := 0; c < GridW; c++ {
+		// collect non-empty cells bottom-to-top
+		stack := make([]int, 0, GridH)
+		for r := GridH - 1; r >= 0; r-- {
+			if g.Cells[r][c] != ColorNone {
+				stack = append(stack, g.Cells[r][c])
+			}
+		}
+		// rewrite column
+		for r := GridH - 1; r >= 0; r-- {
+			idx := GridH - 1 - r
+			if idx < len(stack) {
+				g.Cells[r][c] = stack[idx]
+			} else {
+				g.Cells[r][c] = ColorNone
+			}
+		}
+	}
+}
+
+// FillEmpty replaces all empty cells with random colors.
+func (g *Grid) FillEmpty() {
+	for r := 0; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			if g.Cells[r][c] == ColorNone {
+				g.Cells[r][c] = rand.Intn(numColors) + 1
+			}
+		}
+	}
+}
+
+// FindMatchGroups returns match groups in top-to-bottom, left-to-right order.
+// Each group is a connected set of cells that all belong to one or more match
+// patterns (horizontal run, vertical run, or 2×2 block). When there are multiple
+// independent groups, the one with the topmost-leftmost cell comes first.
+func (g *Grid) FindMatchGroups() [][]Pos {
+	all := g.FindMatches()
+	if len(all) == 0 {
+		return nil
+	}
+	matchSet := MatchSet(all)
+	visited := map[Pos]bool{}
+	var groups [][]Pos
+
+	// Iterate in row-major order so the first unvisited cell of each group
+	// determines the sort position naturally.
+	for r := 0; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			p := Pos{r, c}
+			if !matchSet[p] || visited[p] {
+				continue
+			}
+			groups = append(groups, bfsGroup(p, matchSet, visited))
+		}
+	}
+	return groups
+}
+
+func bfsGroup(start Pos, matchSet map[Pos]bool, visited map[Pos]bool) []Pos {
+	dirs := [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
+	var group []Pos
+	queue := []Pos{start}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		if visited[p] {
+			continue
+		}
+		visited[p] = true
+		group = append(group, p)
+		for _, d := range dirs {
+			np := Pos{p.R + d[0], p.C + d[1]}
+			if matchSet[np] && !visited[np] {
+				queue = append(queue, np)
+			}
+		}
+	}
+	return group
+}
+
+// MatchSet converts a []Pos slice to a map for O(1) lookup.
+func MatchSet(matches []Pos) map[Pos]bool {
+	s := make(map[Pos]bool, len(matches))
+	for _, p := range matches {
+		s[p] = true
+	}
+	return s
+}
+
+// MatchesAsArray converts []Pos to [][2]int for JSON.
+func MatchesAsArray(matches []Pos) [][2]int {
+	out := make([][2]int, len(matches))
+	for i, p := range matches {
+		out[i] = [2]int{p.R, p.C}
+	}
+	return out
+}

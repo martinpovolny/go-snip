@@ -1,0 +1,19 @@
+[Unit]
+Description=Ball Fall match-3 game server
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/ballfall
+# systemd creates /run/ballfall/ and cleans it up on stop
+RuntimeDirectory=ballfall
+ExecStart=/opt/ballfall/ballfall \
+    --headless \
+    --http 0.0.0.0:8080 \
+    --tcp  0.0.0.0:7777 \
+    --unix /run/ballfall/ballfall.sock
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
