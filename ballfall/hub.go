@@ -99,3 +99,32 @@ func (h *Hub) DispatchMove(c *Client, m MoveMsg) {
 		}
 	}
 }
+
+// SendTo queues a message to a single client (best-effort, drops if slow).
+func (h *Hub) SendTo(c *Client, msg any) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// ClaimPlayer makes c the player unconditionally, demoting the current player
+// (if any) to observer. Returns the demoted client so the caller can notify it.
+func (h *Hub) ClaimPlayer(c *Client) (demoted *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.player == c {
+		return nil // already the player
+	}
+	demoted = h.player
+	if demoted != nil {
+		demoted.role = "observer"
+	}
+	h.player = c
+	c.role = "player"
+	return demoted
+}

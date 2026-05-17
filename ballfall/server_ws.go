@@ -63,11 +63,17 @@ func handleWS(w http.ResponseWriter, r *http.Request, h *Hub) {
 		if err := json.Unmarshal(msg, &base); err != nil {
 			continue
 		}
-		if base.Type == "move" {
+		switch base.Type {
+		case "move":
 			var m MoveMsg
 			if err := json.Unmarshal(msg, &m); err == nil {
 				h.DispatchMove(c, m)
 			}
+		case "claim":
+			if demoted := h.ClaimPlayer(c); demoted != nil {
+				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
+			}
+			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
 		}
 	}
 	<-done

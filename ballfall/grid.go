@@ -169,6 +169,55 @@ func (g *Grid) FillEmpty() {
 	}
 }
 
+// FallingBall describes one ball's fall animation after gravity.
+type FallingBall struct {
+	Color       int
+	Col         int
+	FromRow     float64 // grid row where the ball starts (may be negative = above the grid)
+	ToRow       float64 // grid row where it lands
+}
+
+// GravityAndFill applies gravity and fills empty cells, returning animation data
+// for every ball that moved or was spawned.
+func (g *Grid) GravityAndFill() []FallingBall {
+	var falls []FallingBall
+	for c := 0; c < GridW; c++ {
+		// collect existing balls bottom-to-top, tracking source rows
+		type ballSrc struct{ color, srcRow int }
+		var stack []ballSrc
+		for r := GridH - 1; r >= 0; r-- {
+			if g.Cells[r][c] != ColorNone {
+				stack = append(stack, ballSrc{g.Cells[r][c], r})
+			}
+		}
+		// how many new balls needed?
+		gaps := GridH - len(stack)
+		// new balls appear above the grid: spawn them at rows -gaps..-1
+		for i := 0; i < gaps; i++ {
+			clr := rand.Intn(numColors) + 1
+			spawnRow := float64(-(gaps - i)) // e.g. -2, -1 for 2 new balls
+			landRow := float64(i)            // they land at the top rows
+			falls = append(falls, FallingBall{clr, c, spawnRow, landRow})
+			stack = append(stack, ballSrc{clr, -1})
+		}
+		// rewrite column and record which existing balls moved
+		for r := GridH - 1; r >= 0; r-- {
+			idx := GridH - 1 - r
+			ball := stack[idx]
+			g.Cells[r][c] = ball.color
+			destRow := float64(r)
+			if ball.srcRow == -1 {
+				// already recorded above
+				continue
+			}
+			if ball.srcRow != r {
+				falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), destRow})
+			}
+		}
+	}
+	return falls
+}
+
 // FindMatchGroups returns match groups in top-to-bottom, left-to-right order.
 // Each group is a connected set of cells that all belong to one or more match
 // patterns (horizontal run, vertical run, or 2×2 block). When there are multiple
