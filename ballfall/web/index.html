@@ -96,9 +96,9 @@ function scheduleFrame() {
   if (!rafId) rafId = requestAnimationFrame(animFrame);
 }
 
-const FALL_GRAV  = 0.04;  // rows / frame²
-const FALL_VMAX  = 0.7;   // rows / frame (max fall speed)
-const SWAP_MS    = 240;   // ms for swap slide
+const FALL_GRAV  = 0.018; // rows / frame²
+const FALL_VMAX  = 0.45;  // rows / frame (max fall speed)
+const SWAP_MS    = 420;   // ms for swap slide
 
 function animFrame() {
   rafId = null;

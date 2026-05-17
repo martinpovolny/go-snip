@@ -192,12 +192,16 @@ func (g *Grid) GravityAndFill() []FallingBall {
 		}
 		// how many new balls needed?
 		gaps := GridH - len(stack)
-		// new balls appear above the grid: spawn them at rows -gaps..-1
+		// New balls fill the top `gaps` rows. The rewrite loop (below) assigns
+		// stack[GridH-gaps+j] → row j (top-to-bottom within the gap), so we
+		// append in the order that places spawnRow=-1 at the bottom of the gap
+		// and spawnRow=-gaps at the top. All balls fall the same distance (gaps rows).
 		for i := 0; i < gaps; i++ {
 			clr := rand.Intn(numColors) + 1
-			spawnRow := float64(-(gaps - i)) // e.g. -2, -1 for 2 new balls
-			landRow := float64(i)            // they land at the top rows
-			falls = append(falls, FallingBall{clr, c, spawnRow, landRow})
+			// stack position GridH-gaps+i → row gaps-1-i
+			destRow := float64(gaps - 1 - i)
+			spawnRow := float64(-(i + 1)) // -1, -2, ..., -gaps
+			falls = append(falls, FallingBall{clr, c, spawnRow, destRow})
 			stack = append(stack, ballSrc{clr, -1})
 		}
 		// rewrite column and record which existing balls moved

@@ -18,8 +18,8 @@ const (
 	clearTicks = 30 // frames for the flash-clear animation
 
 	swapFrames = 12  // frames for swap animation
-	fallGrav = 0.06 // acceleration in grid-rows per frame²
-	fallVMax = 0.8  // max velocity in grid-rows per frame
+	fallGrav = 0.04 // acceleration in grid-rows per frame²
+	fallVMax = 0.6  // max velocity in grid-rows per frame
 )
 
 var palette = [5]color.RGBA{
