@@ -19,6 +19,46 @@ type Grid struct {
 	Cells [GridH][GridW]int
 }
 
+// GravityOnly compacts each column downward without filling empty cells.
+// Returns animation data for every ball that moved.
+func (g *Grid) GravityOnly() []FallingBall {
+	var falls []FallingBall
+	for c := 0; c < GridW; c++ {
+		type ballSrc struct{ color, srcRow int }
+		var stack []ballSrc
+		for r := GridH - 1; r >= 0; r-- {
+			if g.Cells[r][c] != ColorNone {
+				stack = append(stack, ballSrc{g.Cells[r][c], r})
+			}
+		}
+		for r := GridH - 1; r >= 0; r-- {
+			idx := GridH - 1 - r
+			if idx < len(stack) {
+				ball := stack[idx]
+				g.Cells[r][c] = ball.color
+				if ball.srcRow != r {
+					falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), float64(r)})
+				}
+			} else {
+				g.Cells[r][c] = ColorNone
+			}
+		}
+	}
+	return falls
+}
+
+// NewAttackGrid creates a grid for Ball Attack mode: only the bottom 2 rows
+// are filled; rows 0–7 are empty.
+func NewAttackGrid() *Grid {
+	g := &Grid{}
+	for r := GridH - 2; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			g.Cells[r][c] = rand.Intn(numColors) + 1
+		}
+	}
+	return g
+}
+
 // NewGrid creates a randomly filled grid with no pre-existing matches.
 func NewGrid() *Grid {
 	g := &Grid{}

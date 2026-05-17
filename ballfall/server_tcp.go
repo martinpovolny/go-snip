@@ -57,30 +57,46 @@ func handleRawConn(conn net.Conn, h *Hub) {
 	}
 
 	// Writer goroutine: drain send channel → conn.
-	done := make(chan struct{})
+	// Exits when c.send is closed (by Unregister) or on write error.
 	go func() {
-		defer close(done)
 		for data := range c.send {
 			if _, err := conn.Write(data); err != nil {
+				// Close the connection so the reader's Scan() returns.
+				conn.Close()
+				// Drain remaining messages so Unregister's close() doesn't block.
+				for range c.send {
+				}
 				return
 			}
 		}
 	}()
 
-	// Reader: parse incoming JSON lines and dispatch moves.
+	// Reader: parse incoming JSON lines and dispatch moves/claims.
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		var base InMsg
 		if err := json.Unmarshal(line, &base); err != nil {
 			continue
 		}
-		if base.Type == "move" {
+		switch base.Type {
+		case "move":
 			var m MoveMsg
 			if err := json.Unmarshal(line, &m); err == nil {
 				h.DispatchMove(c, m)
 			}
+		case "claim":
+			if demoted := h.ClaimPlayer(c); demoted != nil {
+				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
+			}
+			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
+		case "set_mode":
+			var sm SetModeMsg
+			if err := json.Unmarshal(line, &sm); err == nil {
+				h.DispatchMode(c, sm)
+			}
 		}
 	}
-	<-done
+	// Unregister closes c.send, which unblocks the writer goroutine.
 }

@@ -1,90 +1,125 @@
 package main
 
 import (
-	"fmt"
-	"image/color"
+	"math/rand"
 	"sync"
-
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
 	cellSize   = 60
-	ballPad    = 5
-	winW       = GridW * cellSize
-	winH       = GridH * cellSize
-	clearTicks = 30 // frames for the flash-clear animation
+	clearTicks = 30 // frames for flash-clear animation
+	swapFrames = 12 // frames for swap animation
+	fallGrav   = 0.04
+	fallVMax   = 0.6
 
-	swapFrames = 12  // frames for swap animation
-	fallGrav = 0.04 // acceleration in grid-rows per frame²
-	fallVMax = 0.6  // max velocity in grid-rows per frame
+	attackDropInterval = 60 // ticks between drops in Ball Attack (1 s at 60 fps)
 )
-
-var palette = [5]color.RGBA{
-	{},
-	{220, 60, 60, 255},
-	{60, 200, 80, 255},
-	{60, 120, 220, 255},
-	{230, 200, 50, 255},
-}
 
 type gameState int
 
 const (
 	stateWaiting  gameState = iota
-	stateSwapping           // two balls animate toward each other
-	stateSwapBack           // invalid swap – animate back
-	stateClearing           // flash animation before removing matched cells
-	stateFalling            // gravity/fill animation
+	stateSwapping
+	stateSwapBack
+	stateClearing
+	stateFalling
+	stateGameOver
+)
+
+type gameMode int
+
+const (
+	modeDemo   gameMode = iota
+	modeAttack
 )
 
 type activeFall struct {
 	FallingBall
-	cur float64 // current row (float, grid units)
-	vel float64 // current velocity (rows/frame)
+	cur float64
+	vel float64
 }
 
-// Game is the central game object. It implements ebiten.Game and owns the grid.
+// Game is the central game object. Update is always present; Draw/Layout live
+// in draw.go under the !nogui build tag.
 type Game struct {
 	mu      sync.Mutex
 	grid    *Grid
 	score   int
 	cascade int
 
-	state   gameState
-	timer   int
+	mode  gameMode
+	state gameState
+	timer int
+
 	current []Pos
 	matchMS map[Pos]bool
 
-	// swap animation
-	swapA, swapB       Pos
+	swapA, swapB           Pos
 	swapColorA, swapColorB int
-	swapProgress       float64 // 0→1
-	swapValid          bool    // true = will commit, false = will revert
+	swapProgress           float64
+	swapValid              bool
 
-	// fall animation
-	falling []activeFall
+	falling        []activeFall
+	_pendingGroups [][]Pos
 
-	// mouse input
+	dropTicks int // Ball Attack: ticks until next ball drop
+
 	mouseDown     bool
 	dragStartCell Pos
 	dragStartPx   [2]float64
 	hoverCell     Pos
-	hoverValid    bool // whether hoverCell is inside grid
-
-	// pending match groups found after gravity; consumed when fall animation ends
-	_pendingGroups [][]Pos
+	hoverValid    bool
 
 	hub *Hub
 }
 
 func NewGame(h *Hub) *Game {
-	return &Game{grid: NewGrid(), hub: h}
+	return &Game{
+		grid:      NewGrid(),
+		mode:      modeDemo,
+		dropTicks: attackDropInterval,
+		hub:       h,
+	}
 }
 
-// snapshot must be called with g.mu held.
+func (g *Game) modeString() string {
+	if g.mode == modeAttack {
+		return "attack"
+	}
+	return "demo"
+}
+
+// Reset reinitializes the game for the given mode, broadcasting a fresh state.
+// Called directly by the GUI mouse handler or via the ModeIn channel.
+func (g *Game) Reset(mode gameMode) {
+	g.mu.Lock()
+	g.mode = mode
+	g.score = 0
+	g.cascade = 0
+	g.state = stateWaiting
+	g.timer = 0
+	g.current = nil
+	g.matchMS = nil
+	g.falling = nil
+	g._pendingGroups = nil
+	g.swapProgress = 0
+	g.dropTicks = attackDropInterval
+	g.mouseDown = false
+	g.hoverValid = false
+
+	switch mode {
+	case modeAttack:
+		g.grid = NewAttackGrid()
+	default:
+		g.grid = NewGrid()
+	}
+	msg := g.snapshot("waiting")
+	g.mu.Unlock()
+
+	g.hub.SetMode(g.modeString())
+	g.hub.Broadcast(msg)
+}
+
 func (g *Game) snapshot(status string) StateMsg {
 	msg := StateMsg{
 		Type:    "state",
@@ -94,6 +129,7 @@ func (g *Game) snapshot(status string) StateMsg {
 		Score:   g.score,
 		Status:  status,
 		Cascade: g.cascade,
+		Mode:    g.modeString(),
 	}
 	if g.current != nil {
 		msg.Matches = MatchesAsArray(g.current)
@@ -117,20 +153,22 @@ func (g *Game) startGroup(group []Pos) {
 	g.matchMS = MatchSet(group)
 	g.timer = clearTicks
 	g.state = stateClearing
-	// broadcast so clients can flash the matched cells
 	g.mu.Lock()
 	msg := g.snapshot("clearing")
 	g.mu.Unlock()
 	g.hub.Broadcast(msg)
 }
 
-// checkCascade clears the current match group, applies gravity, and either
-// starts the next group's clear or begins the fall animation.
 func (g *Game) checkCascade() {
 	g.mu.Lock()
 	g.grid.ClearMatches(g.current)
 	g.score += len(g.current)
-	falls := g.grid.GravityAndFill()
+	var falls []FallingBall
+	if g.mode == modeAttack {
+		falls = g.grid.GravityOnly()
+	} else {
+		falls = g.grid.GravityAndFill()
+	}
 	groups := g.grid.FindMatchGroups()
 	g.mu.Unlock()
 
@@ -147,13 +185,12 @@ func (g *Game) checkCascade() {
 func (g *Game) startFalling(falls []FallingBall, nextGroups [][]Pos) {
 	active := make([]activeFall, len(falls))
 	for i, f := range falls {
-		active[i] = activeFall{FallingBall: f, cur: f.FromRow, vel: 0}
+		active[i] = activeFall{FallingBall: f, cur: f.FromRow}
 	}
 	g.falling = active
 	g._pendingGroups = nextGroups
 	g.state = stateFalling
 
-	// broadcast fall animation so web clients can animate
 	balls := make([]FallBallData, len(falls))
 	for i, f := range falls {
 		balls[i] = FallBallData{Color: f.Color, Col: f.Col, FromRow: int(f.FromRow), ToRow: int(f.ToRow)}
@@ -172,12 +209,105 @@ func (g *Game) startFalling(falls []FallingBall, nextGroups [][]Pos) {
 	})
 }
 
-// Update implements ebiten.Game. Runs on the main goroutine at 60 TPS.
+// dropBall executes one Ball Attack drop: places a random ball in a random
+// column, applies the slide rule if isolated, then runs match detection.
+func (g *Game) dropBall() {
+	col := rand.Intn(GridW)
+
+	g.mu.Lock()
+	// Find landing row: first occupied row from top minus 1.
+	landRow := GridH - 1
+	for r := 0; r < GridH; r++ {
+		if g.grid.Cells[r][col] != ColorNone {
+			landRow = r - 1
+			break
+		}
+	}
+
+	if landRow < 0 {
+		// Column is full — game over.
+		g.state = stateGameOver
+		score := g.score
+		g.mu.Unlock()
+		g.hub.Broadcast(GameOverMsg{Type: "game_over", Score: score, Mode: "attack"})
+		return
+	}
+
+	clr := rand.Intn(numColors) + 1
+	g.grid.Cells[landRow][col] = clr
+
+	// Slide rule: if the ball landed on top of another ball with no
+	// horizontal neighbors, let it slide into an adjacent column.
+	hasBelow := landRow+1 < GridH && g.grid.Cells[landRow+1][col] != ColorNone
+	noLeft   := col == 0 || g.grid.Cells[landRow][col-1] == ColorNone
+	noRight  := col == GridW-1 || g.grid.Cells[landRow][col+1] == ColorNone
+
+	if hasBelow && noLeft && noRight {
+		tryDirs := [2]int{-1, 1}
+		if rand.Intn(2) == 0 {
+			tryDirs = [2]int{1, -1}
+		}
+		for _, dc := range tryDirs {
+			nc := col + dc
+			if nc < 0 || nc >= GridW {
+				continue
+			}
+			// Find lowest empty row in the adjacent column.
+			newLand := -1
+			for r := GridH - 1; r >= 0; r-- {
+				if g.grid.Cells[r][nc] == ColorNone {
+					newLand = r
+					break
+				}
+			}
+			if newLand >= 0 {
+				g.grid.Cells[landRow][col] = ColorNone
+				g.grid.Cells[newLand][nc] = clr
+				col = nc
+				landRow = newLand
+				break
+			}
+		}
+	}
+	groups := g.grid.FindMatchGroups()
+	g.mu.Unlock()
+
+	falls := []FallingBall{{Color: clr, Col: col, FromRow: -1, ToRow: float64(landRow)}}
+	g.startFalling(falls, groups)
+}
+
+// Update runs the game logic tick. Called by ebiten (GUI) or the headless ticker.
 func (g *Game) Update() error {
+	// Mode changes from remote clients take effect immediately.
+	select {
+	case sm := <-g.hub.ModeIn:
+		mode := modeDemo
+		if sm.Mode == "attack" {
+			mode = modeAttack
+		}
+		g.Reset(mode)
+		return nil
+	default:
+	}
+
 	g.handleMouse()
+
+	if g.state == stateGameOver {
+		return nil
+	}
 
 	switch g.state {
 	case stateWaiting:
+		// Ball Attack: advance drop timer only while waiting.
+		if g.mode == modeAttack {
+			g.dropTicks--
+			if g.dropTicks <= 0 {
+				g.dropTicks = attackDropInterval
+				g.dropBall()
+				return nil
+			}
+		}
+
 		select {
 		case m := <-g.hub.MoveIn:
 			g.initiateSwap(Pos{m.Row, m.Col}, m.Dir)
@@ -189,7 +319,6 @@ func (g *Game) Update() error {
 		if g.swapProgress >= 1.0 {
 			g.swapProgress = 1.0
 			if g.state == stateSwapping && g.swapValid {
-				// commit: board already has the swap; find matches
 				g.mu.Lock()
 				groups := g.grid.FindMatchGroups()
 				g.mu.Unlock()
@@ -197,11 +326,9 @@ func (g *Game) Update() error {
 					g.cascade = 0
 					g.startGroup(groups[0])
 				} else {
-					// shouldn't happen (we pre-checked), settle anyway
 					g.settle()
 				}
 			} else {
-				// revert: swap cells back in grid
 				g.mu.Lock()
 				g.grid.Swap(g.swapA, g.swapB)
 				g.mu.Unlock()
@@ -246,7 +373,6 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// initiateSwap validates a swap from pos in dir and starts the animation.
 func (g *Game) initiateSwap(from Pos, dir string) {
 	dr, dc, ok := dirToDelta(dir)
 	if !ok {
@@ -262,18 +388,11 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 	colorB := g.grid.Cells[to.R][to.C]
 	g.grid.Swap(from, to)
 	groups := g.grid.FindMatchGroups()
-	if len(groups) == 0 {
-		// leave grid swapped for now; swapBack animation will undo it
-		g.swapValid = false
-	} else {
-		g.swapValid = true
-	}
+	g.swapValid = len(groups) > 0
 	g.mu.Unlock()
 
-	g.swapA = from
-	g.swapB = to
-	g.swapColorA = colorA
-	g.swapColorB = colorB
+	g.swapA, g.swapB = from, to
+	g.swapColorA, g.swapColorB = colorA, colorB
 	g.swapProgress = 0
 	if g.swapValid {
 		g.state = stateSwapping
@@ -289,54 +408,7 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 	})
 }
 
-// handleMouse reads ebiten mouse state and drives drag-to-swap.
-func (g *Game) handleMouse() {
-	if g.state != stateWaiting {
-		return
-	}
-	mx, my := ebiten.CursorPosition()
-	px, py := float64(mx), float64(my)
-
-	// track hover
-	hc := Pos{int(py) / cellSize, int(px) / cellSize}
-	if hc.R >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW {
-		g.hoverCell = hc
-		g.hoverValid = true
-	} else {
-		g.hoverValid = false
-	}
-
-	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-	if pressed && !g.mouseDown {
-		g.mouseDown = true
-		g.dragStartPx = [2]float64{px, py}
-		g.dragStartCell = hc
-	}
-	if !pressed && g.mouseDown {
-		g.mouseDown = false
-		dx := px - g.dragStartPx[0]
-		dy := py - g.dragStartPx[1]
-		const minDrag = cellSize * 0.35
-		if abs64(dx) < minDrag && abs64(dy) < minDrag {
-			return // too small a movement
-		}
-		var dir string
-		if abs64(dx) >= abs64(dy) {
-			if dx > 0 {
-				dir = "right"
-			} else {
-				dir = "left"
-			}
-		} else {
-			if dy > 0 {
-				dir = "down"
-			} else {
-				dir = "up"
-			}
-		}
-		g.initiateSwap(g.dragStartCell, dir)
-	}
-}
+// handleMouse is a no-op in the nogui build (stub in mouse_nogui.go).
 
 func abs64(x float64) float64 {
 	if x < 0 {
@@ -348,119 +420,3 @@ func abs64(x float64) float64 {
 func smoothstep(t float64) float64 {
 	return t * t * (3 - 2*t)
 }
-
-// Draw implements ebiten.Game.
-func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{22, 22, 30, 255})
-
-	flash := g.state == stateClearing && (g.timer/5)%2 == 0
-
-	g.mu.Lock()
-	snapshot := g.grid.Snapshot()
-	score := g.score
-	g.mu.Unlock()
-
-	// Suppress the grid-cell render for cells where a falling ball will land.
-	fallDest := map[Pos]bool{}
-	for _, f := range g.falling {
-		fallDest[Pos{int(f.ToRow + 0.5), f.Col}] = true
-	}
-
-	// Cells hidden during swap animation (we draw them manually at lerped positions).
-	swapHide := map[Pos]bool{}
-	if g.state == stateSwapping || g.state == stateSwapBack {
-		swapHide[g.swapA] = true
-		swapHide[g.swapB] = true
-	}
-
-	for r := 0; r < GridH; r++ {
-		for c := 0; c < GridW; c++ {
-			x := float32(c * cellSize)
-			y := float32(r * cellSize)
-			vector.DrawFilledRect(screen, x+2, y+2, cellSize-4, cellSize-4,
-				color.RGBA{38, 40, 52, 255}, false)
-
-			if swapHide[Pos{r, c}] {
-				continue
-			}
-			if fallDest[Pos{r, c}] {
-				continue // falling ball will be drawn at its current position
-			}
-
-			clr := snapshot[r][c]
-			if clr == ColorNone {
-				continue
-			}
-			p := Pos{r, c}
-			if g.matchMS != nil && g.matchMS[p] {
-				if flash {
-					drawBall(screen, x, y, color.RGBA{255, 255, 255, 220})
-				}
-			} else {
-				if g.hoverValid && g.hoverCell == p && g.state == stateWaiting {
-					drawBallHighlight(screen, x, y, palette[clr])
-				} else {
-					drawBall(screen, x, y, palette[clr])
-				}
-			}
-		}
-	}
-
-	// Draw swap animation.
-	if g.state == stateSwapping || g.state == stateSwapBack {
-		t := smoothstep(g.swapProgress)
-		aR := float32(g.swapA.R) * cellSize
-		aC := float32(g.swapA.C) * cellSize
-		bR := float32(g.swapB.R) * cellSize
-		bC := float32(g.swapB.C) * cellSize
-
-		// ball A moves from its start toward B's position
-		axNow := aC + float32(t)*(bC-aC)
-		ayNow := aR + float32(t)*(bR-aR)
-		// ball B moves from its start toward A's position
-		bxNow := bC + float32(t)*(aC-bC)
-		byNow := bR + float32(t)*(aR-bR)
-
-		// during stateSwapping the grid already has A↔B swapped, so colors are inverted
-		cA := g.swapColorA
-		cB := g.swapColorB
-		drawBall(screen, axNow, ayNow, palette[cA])
-		drawBall(screen, bxNow, byNow, palette[cB])
-	}
-
-	// Draw falling balls.
-	for _, f := range g.falling {
-		x := float32(f.Col * cellSize)
-		y := float32(f.cur * cellSize)
-		drawBall(screen, x, y, palette[f.Color])
-	}
-
-	label := fmt.Sprintf("Score: %d", score)
-	if g.cascade > 0 {
-		label += fmt.Sprintf("  Cascade ×%d", g.cascade+1)
-	}
-	ebitenutil.DebugPrint(screen, label)
-}
-
-func drawBall(screen *ebiten.Image, x, y float32, c color.RGBA) {
-	cx := x + cellSize/2
-	cy := y + cellSize/2
-	r := float32(cellSize/2 - ballPad)
-	vector.DrawFilledCircle(screen, cx+2, cy+3, r, color.RGBA{0, 0, 0, 60}, true)
-	vector.DrawFilledCircle(screen, cx, cy, r, c, true)
-	vector.DrawFilledCircle(screen, cx-r/3, cy-r/3, r/4, color.RGBA{255, 255, 255, 110}, true)
-}
-
-func drawBallHighlight(screen *ebiten.Image, x, y float32, c color.RGBA) {
-	cx := x + cellSize/2
-	cy := y + cellSize/2
-	r := float32(cellSize/2 - ballPad)
-	// outer glow ring
-	vector.DrawFilledCircle(screen, cx, cy, r+4, color.RGBA{255, 255, 255, 60}, true)
-	vector.DrawFilledCircle(screen, cx+2, cy+3, r, color.RGBA{0, 0, 0, 60}, true)
-	vector.DrawFilledCircle(screen, cx, cy, r, c, true)
-	vector.DrawFilledCircle(screen, cx-r/3, cy-r/3, r/4, color.RGBA{255, 255, 255, 110}, true)
-}
-
-// Layout implements ebiten.Game.
-func (g *Game) Layout(_, _ int) (int, int) { return winW, winH }

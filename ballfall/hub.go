@@ -11,23 +11,33 @@ type Client struct {
 	role string     // "player" or "observer"
 }
 
-// Hub manages all connected clients and routes moves to the game.
+// Hub manages all connected clients and routes messages to the game.
 type Hub struct {
 	mu        sync.Mutex
 	clients   map[*Client]bool
 	player    *Client // at most one player at a time
 	lastState []byte  // last broadcast payload; sent to clients on connect
+	mode      string  // current game mode: "demo" | "attack"
 
-	// Game calls MoveIn when a player move arrives.
-	// The channel is never closed; it is drained by the game loop.
+	// Channels consumed by the game loop; never closed.
 	MoveIn chan MoveMsg
+	ModeIn chan SetModeMsg
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		clients: make(map[*Client]bool),
+		mode:    "demo",
 		MoveIn:  make(chan MoveMsg, 4),
+		ModeIn:  make(chan SetModeMsg, 4),
 	}
+}
+
+// SetMode stores the current mode so new clients receive it in their welcome.
+func (h *Hub) SetMode(mode string) {
+	h.mu.Lock()
+	h.mode = mode
+	h.mu.Unlock()
 }
 
 // Register adds a new client. The first registered client becomes the player;
@@ -48,7 +58,7 @@ func (h *Hub) Register(c *Client) WelcomeMsg {
 		default:
 		}
 	}
-	return WelcomeMsg{Type: "welcome", Role: c.role, Width: GridW, Height: GridH}
+	return WelcomeMsg{Type: "welcome", Role: c.role, Width: GridW, Height: GridH, Mode: h.mode}
 }
 
 // Unregister removes a client. If it was the player, the next observer is promoted.
@@ -58,7 +68,6 @@ func (h *Hub) Unregister(c *Client) {
 	delete(h.clients, c)
 	if h.player == c {
 		h.player = nil
-		// promote the first available observer
 		for other := range h.clients {
 			other.role = "player"
 			h.player = other
@@ -86,8 +95,7 @@ func (h *Hub) Broadcast(msg any) {
 	}
 }
 
-// DispatchMove is called by a client goroutine; it enqueues a move only if the
-// sender is the current player.
+// DispatchMove enqueues a move only if the sender is the current player.
 func (h *Hub) DispatchMove(c *Client, m MoveMsg) {
 	h.mu.Lock()
 	isPlayer := h.player == c
@@ -100,12 +108,27 @@ func (h *Hub) DispatchMove(c *Client, m MoveMsg) {
 	}
 }
 
+// DispatchMode enqueues a mode change only if the sender is the current player.
+func (h *Hub) DispatchMode(c *Client, m SetModeMsg) {
+	h.mu.Lock()
+	isPlayer := h.player == c
+	h.mu.Unlock()
+	if isPlayer {
+		select {
+		case h.ModeIn <- m:
+		default:
+		}
+	}
+}
+
 // SendTo queues a message to a single client (best-effort, drops if slow).
+// Appends a newline so TCP scanner clients can detect message boundaries.
 func (h *Hub) SendTo(c *Client, msg any) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
+	data = append(data, '\n')
 	select {
 	case c.send <- data:
 	default:
@@ -118,7 +141,7 @@ func (h *Hub) ClaimPlayer(c *Client) (demoted *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.player == c {
-		return nil // already the player
+		return nil
 	}
 	demoted = h.player
 	if demoted != nil {

@@ -8,7 +8,7 @@ WorkingDirectory=/opt/ballfall
 RuntimeDirectory=ballfall
 ExecStart=/opt/ballfall/ballfall \
     --headless \
-    --http 0.0.0.0:8080 \
+    --http 0.0.0.0:8081 \
     --tcp  0.0.0.0:7777 \
     --unix /run/ballfall/ballfall.sock
 Restart=always

@@ -312,3 +312,240 @@ func TestOverlappingPatterns(t *testing.T) {
 		}
 	}
 }
+
+// ── GravityOnly ───────────────────────────────────────────────────────────────
+
+func TestGravityOnly_AlreadySettled(t *testing.T) {
+	g := &Grid{}
+	g.Cells[GridH-1][0] = ColorRed
+	g.Cells[GridH-1][1] = ColorBlue
+
+	falls := g.GravityOnly()
+	if len(falls) != 0 {
+		t.Fatalf("settled balls should produce no falls, got %d", len(falls))
+	}
+	if g.Cells[GridH-1][0] != ColorRed || g.Cells[GridH-1][1] != ColorBlue {
+		t.Fatal("settled balls should not move")
+	}
+}
+
+func TestGravityOnly_SingleBallDropsToBottom(t *testing.T) {
+	g := &Grid{}
+	g.Cells[0][0] = ColorGreen // lone ball at top of empty column
+
+	falls := g.GravityOnly()
+
+	if len(falls) != 1 {
+		t.Fatalf("expected 1 fall record, got %d", len(falls))
+	}
+	f := falls[0]
+	if f.Color != ColorGreen {
+		t.Errorf("color: got %d, want %d (Green)", f.Color, ColorGreen)
+	}
+	if f.FromRow != 0 {
+		t.Errorf("FromRow: got %v, want 0", f.FromRow)
+	}
+	if f.ToRow != float64(GridH-1) {
+		t.Errorf("ToRow: got %v, want %d", f.ToRow, GridH-1)
+	}
+	if g.Cells[GridH-1][0] != ColorGreen {
+		t.Error("ball should land at the bottom row")
+	}
+}
+
+func TestGravityOnly_DoesNotFillEmpty(t *testing.T) {
+	// After dropping one ball there should be exactly GridH-1 empty cells in that column.
+	g := &Grid{}
+	g.Cells[0][0] = ColorRed
+
+	g.GravityOnly()
+
+	empty := 0
+	for r := 0; r < GridH; r++ {
+		if g.Cells[r][0] == ColorNone {
+			empty++
+		}
+	}
+	if empty != GridH-1 {
+		t.Errorf("GravityOnly should leave %d empty cells, found %d non-empty", GridH-1, GridH-1-empty)
+	}
+}
+
+func TestGravityOnly_LandsOnExistingBall(t *testing.T) {
+	// Ball at row GridH-3 should land on top of ball at GridH-1.
+	g := &Grid{}
+	g.Cells[GridH-1][0] = ColorYellow
+	g.Cells[GridH-3][0] = ColorRed
+
+	falls := g.GravityOnly()
+
+	if len(falls) != 1 {
+		t.Fatalf("expected 1 fall (Red), got %d", len(falls))
+	}
+	if falls[0].Color != ColorRed {
+		t.Errorf("expected Red to fall, got color %d", falls[0].Color)
+	}
+	if falls[0].ToRow != float64(GridH-2) {
+		t.Errorf("ToRow: got %v, want %d", falls[0].ToRow, GridH-2)
+	}
+}
+
+func TestGravityOnly_StackOrder(t *testing.T) {
+	// Two balls at rows 0 and 2; both compact to the bottom, order preserved.
+	g := &Grid{}
+	g.Cells[0][0] = ColorRed
+	g.Cells[2][0] = ColorBlue
+
+	g.GravityOnly()
+
+	// GravityOnly collects bottom-to-top: Blue(row2) first, Red(row0) second.
+	// Writes: Cells[GridH-1]=Blue, Cells[GridH-2]=Red.
+	if g.Cells[GridH-1][0] != ColorBlue {
+		t.Errorf("bottom cell: got %d, want Blue(%d)", g.Cells[GridH-1][0], ColorBlue)
+	}
+	if g.Cells[GridH-2][0] != ColorRed {
+		t.Errorf("second cell: got %d, want Red(%d)", g.Cells[GridH-2][0], ColorRed)
+	}
+	for r := 0; r < GridH-2; r++ {
+		if g.Cells[r][0] != ColorNone {
+			t.Errorf("row %d should be empty, got %d", r, g.Cells[r][0])
+		}
+	}
+}
+
+// ── GravityAndFill ────────────────────────────────────────────────────────────
+
+func TestGravityAndFill_EmptyColumnFilled(t *testing.T) {
+	g := &Grid{}
+	g.GravityAndFill()
+
+	for r := 0; r < GridH; r++ {
+		if g.Cells[r][0] == ColorNone {
+			t.Errorf("row %d col 0 should be filled, got empty", r)
+		}
+	}
+}
+
+func TestGravityAndFill_NewBallsHaveNegativeFromRow(t *testing.T) {
+	g := &Grid{} // completely empty
+	for _, f := range g.GravityAndFill() {
+		if f.FromRow >= 0 {
+			t.Errorf("spawned ball should have FromRow<0, got %v", f.FromRow)
+		}
+	}
+}
+
+func TestGravityAndFill_FullColumnUnchanged(t *testing.T) {
+	// Fill every column so no spawning happens anywhere.
+	g := &Grid{}
+	for r := 0; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			g.Cells[r][c] = ColorRed
+		}
+	}
+	before := g.Cells
+
+	falls := g.GravityAndFill()
+
+	if g.Cells != before {
+		t.Error("full grid must not change")
+	}
+	if len(falls) != 0 {
+		t.Errorf("full grid should produce no fall records, got %d", len(falls))
+	}
+}
+
+func TestGravityAndFill_ExistingBallMovesAndGapFilled(t *testing.T) {
+	// One ball at row 0; gravity moves it to the bottom, new balls fill above it.
+	g := &Grid{}
+	g.Cells[0][0] = ColorRed
+
+	falls := g.GravityAndFill()
+
+	if g.Cells[GridH-1][0] == ColorNone {
+		t.Error("bottom cell should be non-empty after fill")
+	}
+
+	var existing, spawned int
+	for _, f := range falls {
+		if f.Col != 0 {
+			continue
+		}
+		if f.FromRow < 0 {
+			spawned++
+		} else {
+			existing++
+		}
+	}
+	if existing != 1 {
+		t.Errorf("expected 1 existing-ball fall record for col 0, got %d", existing)
+	}
+	if spawned != GridH-1 {
+		t.Errorf("expected %d spawned-ball records, got %d", GridH-1, spawned)
+	}
+}
+
+// ── ClearMatches + GravityOnly round-trip (Ball Attack) ───────────────────────
+
+func TestClearAndGravityOnly_AttackCycle(t *testing.T) {
+	// Vertical match of 3 at the bottom; one orphan ball above.
+	// After clear + GravityOnly the orphan falls to bottom; no fill.
+	g := parseBoard(`
+		. . . . . . . .
+		. . . . . . . .
+		. . . . . . . .
+		. . . . . . . .
+		. . . . . . . .
+		. . . . . . . .
+		. . B . . . . .
+		. . R . . . . .
+		. . R . . . . .
+		. . R . . . . .
+	`)
+	matches := g.FindMatches()
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 matched cells (vertical R R R), got %d", len(matches))
+	}
+	g.ClearMatches(matches)
+
+	falls := g.GravityOnly()
+
+	if len(falls) != 1 {
+		t.Fatalf("expected 1 fall (Blue), got %d", len(falls))
+	}
+	if falls[0].Color != ColorBlue {
+		t.Errorf("expected Blue to fall, got color %d", falls[0].Color)
+	}
+	if falls[0].ToRow != float64(GridH-1) {
+		t.Errorf("Blue should land at row %d, got %v", GridH-1, falls[0].ToRow)
+	}
+	// Column 2 should have Blue at bottom, rest empty.
+	if g.Cells[GridH-1][2] != ColorBlue {
+		t.Error("Blue should be at bottom of column 2")
+	}
+	for r := 0; r < GridH-1; r++ {
+		if g.Cells[r][2] != ColorNone {
+			t.Errorf("GravityOnly must not fill: row %d col 2 is %d", r, g.Cells[r][2])
+		}
+	}
+}
+
+// ── NewAttackGrid ─────────────────────────────────────────────────────────────
+
+func TestNewAttackGrid_BottomTwoRowsFilled(t *testing.T) {
+	g := NewAttackGrid()
+	for r := 0; r < GridH-2; r++ {
+		for c := 0; c < GridW; c++ {
+			if g.Cells[r][c] != ColorNone {
+				t.Errorf("row %d col %d should be empty, got %d", r, c, g.Cells[r][c])
+			}
+		}
+	}
+	for r := GridH - 2; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			if g.Cells[r][c] == ColorNone {
+				t.Errorf("row %d col %d should be filled, got empty", r, c)
+			}
+		}
+	}
+}

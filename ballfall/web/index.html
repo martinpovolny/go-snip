@@ -10,14 +10,24 @@ body { background: #12121a; color: #ccc; font-family: 'Courier New', monospace;
        display: flex; flex-direction: column; align-items: center; min-height: 100vh;
        padding: 16px; }
 h1 { color: #fff; margin-bottom: 8px; font-size: 1.4rem; letter-spacing: .1em; }
-#meta { display: flex; gap: 24px; margin-bottom: 12px; font-size: .9rem; align-items: center; flex-wrap: wrap; }
+#meta { display: flex; gap: 16px; margin-bottom: 12px; font-size: .9rem; align-items: center; flex-wrap: wrap; }
 #meta span { color: #888; }
 #meta strong { color: #eee; }
 #conn { font-size: .75rem; padding: 2px 8px; border-radius: 10px; background: #333;
         color: #888; margin-left: auto; }
 #conn.ok { background: #1a3a1a; color: #6c6; }
 #conn.err { background: #3a1a1a; color: #c66; }
-canvas { cursor: crosshair; border: 2px solid #2a2a3a; border-radius: 4px; display: block; }
+
+/* Mode toggle buttons */
+.mode-btn { font-size: .8rem; padding: 3px 14px; border-radius: 10px;
+            background: #28293a; color: #778; border: 1px solid #3a3b50;
+            cursor: pointer; transition: background .15s; }
+.mode-btn:hover { background: #32344a; }
+.mode-btn.active { background: #1e4a9a; color: #cdf; border-color: #3a6acf; }
+
+canvas { cursor: crosshair; border: 2px solid #2a2a3a; border-radius: 4px;
+         display: block; position: relative; }
+#canvas-wrap { position: relative; }
 #role-badge { font-size: .75rem; padding: 2px 10px; border-radius: 10px;
               background: #1a2a3a; color: #6af; }
 #role-badge.observer { background: #2a1a3a; color: #a6f; }
@@ -26,6 +36,16 @@ canvas { cursor: crosshair; border: 2px solid #2a2a3a; border-radius: 4px; displ
              cursor: pointer; display: none; }
 #claim-btn:hover { background: #3a5a1a; }
 #msg { margin-top: 8px; font-size: .8rem; color: #888; min-height: 1.2em; }
+
+/* Game-over overlay */
+#gameover { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,.75); border-radius: 2px;
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: 12px; cursor: pointer; }
+#gameover.show { display: flex; }
+#gameover h2 { color: #f88; font-size: 1.6rem; letter-spacing: .12em; }
+#gameover .go-score { color: #eee; font-size: 1rem; }
+#gameover .go-hint  { color: #888; font-size: .8rem; }
 </style>
 </head>
 <body>
@@ -35,9 +55,18 @@ canvas { cursor: crosshair; border: 2px solid #2a2a3a; border-radius: 4px; displ
   <div>Cascade: <strong id="cascade">—</strong></div>
   <span id="role-badge">connecting…</span>
   <button id="claim-btn" onclick="claimPlayer()">Take control</button>
+  <button class="mode-btn" id="btn-demo"   onclick="setMode('demo')">Demo</button>
+  <button class="mode-btn" id="btn-attack" onclick="setMode('attack')">Ball Attack</button>
   <span id="conn">●&nbsp;connecting</span>
 </div>
-<canvas id="c"></canvas>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <div id="gameover" onclick="setMode('attack')">
+    <h2>GAME OVER</h2>
+    <div class="go-score" id="go-score">Score: 0</div>
+    <div class="go-hint">Click to play again &nbsp;·&nbsp; choose a mode above to switch</div>
+  </div>
+</div>
 <div id="msg"></div>
 
 <script>
@@ -52,6 +81,7 @@ let score    = 0;
 let cascade  = 0;
 let gameStatus = 'waiting';
 let role     = 'observer';
+let gameMode = 'demo';
 
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
@@ -64,16 +94,9 @@ setSize();
 
 // ── animation state ──────────────────────────────────────────────────────────
 
-// swap animation
 let swapAnim = null;
-// { rowA, colA, rowB, colB, colorA, colorB, valid, startTime, duration }
-
-// fall animation
 let fallAnim = null;
-// { balls: [{color, col, fromRow, toRow, cur, vel}], board (final), score, cascade }
-
-// flash for clearing
-let flashOn = true;
+let flashOn  = true;
 let flashInterval = null;
 
 function startFlash() {
@@ -89,16 +112,14 @@ function stopFlash() {
   flashOn = true;
 }
 
-// requestAnimationFrame loop (only runs when an animation is active)
 let rafId = null;
-
 function scheduleFrame() {
   if (!rafId) rafId = requestAnimationFrame(animFrame);
 }
 
-const FALL_GRAV  = 0.018; // rows / frame²
-const FALL_VMAX  = 0.45;  // rows / frame (max fall speed)
-const SWAP_MS    = 420;   // ms for swap slide
+const FALL_GRAV  = 0.018;
+const FALL_VMAX  = 0.45;
+const SWAP_MS    = 420;
 
 function animFrame() {
   rafId = null;
@@ -109,7 +130,6 @@ function animFrame() {
     let t = (now - swapAnim.startTime) / swapAnim.duration;
     if (t >= 1) {
       if (swapAnim.phase === 'forward' && !swapAnim.valid) {
-        // start reverse phase
         swapAnim.phase = 'reverse';
         swapAnim.startTime = now;
       } else {
@@ -128,7 +148,6 @@ function animFrame() {
       b.cur = Math.min(b.cur + b.vel, b.toRow);
     }
     if (allDone) {
-      // commit final board
       board   = fallAnim.board;
       score   = fallAnim.score;
       cascade = fallAnim.cascade;
@@ -140,7 +159,6 @@ function animFrame() {
   }
 
   draw();
-
   if (stillActive) scheduleFrame();
 }
 
@@ -152,21 +170,15 @@ function draw() {
   ctx.fillStyle = '#16161e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // cells to suppress because an animation is drawing them
   const suppress = new Set();
-
   if (swapAnim) {
     suppress.add(`${swapAnim.rowA},${swapAnim.colA}`);
     suppress.add(`${swapAnim.rowB},${swapAnim.colB}`);
   }
-
   if (fallAnim) {
-    for (const b of fallAnim.balls) {
-      suppress.add(`${b.toRow},${b.col}`);
-    }
+    for (const b of fallAnim.balls) suppress.add(`${b.toRow},${b.col}`);
   }
 
-  // grid cells
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
       const x = c * CELL, y = r * CELL;
@@ -174,51 +186,33 @@ function draw() {
       ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
 
       if (suppress.has(`${r},${c}`)) continue;
-
       const clr = board[r] && board[r][c];
       if (!clr) continue;
 
       const isMatch = matchSet.has(`${r},${c}`);
       if (isMatch) {
         if (flashOn) drawBall(x, y, null, true);
-        // else invisible (off-phase)
       } else {
         drawBall(x, y, clr, false);
       }
     }
   }
 
-  // swap animation overlay
   if (swapAnim) {
     const now = performance.now();
-    let t = (now - swapAnim.startTime) / swapAnim.duration;
-    t = Math.min(Math.max(t, 0), 1);
+    let t = Math.min(Math.max((now - swapAnim.startTime) / swapAnim.duration, 0), 1);
     const ease = smoothstep(t);
     const progress = swapAnim.phase === 'reverse' ? 1 - ease : ease;
-
-    const axPx = swapAnim.colA * CELL;
-    const ayPx = swapAnim.rowA * CELL;
-    const bxPx = swapAnim.colB * CELL;
-    const byPx = swapAnim.rowB * CELL;
-
-    const ax = axPx + progress * (bxPx - axPx);
-    const ay = ayPx + progress * (byPx - ayPx);
-    const bx = bxPx + progress * (axPx - bxPx);
-    const by = byPx + progress * (ayPx - byPx);
-
-    drawBall(ax, ay, swapAnim.colorA, false);
-    drawBall(bx, by, swapAnim.colorB, false);
+    const axPx = swapAnim.colA * CELL, ayPx = swapAnim.rowA * CELL;
+    const bxPx = swapAnim.colB * CELL, byPx = swapAnim.rowB * CELL;
+    drawBall(axPx + progress * (bxPx - axPx), ayPx + progress * (byPx - ayPx), swapAnim.colorA, false);
+    drawBall(bxPx + progress * (axPx - bxPx), byPx + progress * (ayPx - byPx), swapAnim.colorB, false);
   }
 
-  // fall animation overlay
   if (fallAnim) {
-    // draw final board underneath, suppressed cells get drawn by falling balls
-    for (const b of fallAnim.balls) {
-      drawBall(b.col * CELL, b.cur * CELL, b.color, false);
-    }
+    for (const b of fallAnim.balls) drawBall(b.col * CELL, b.cur * CELL, b.color, false);
   }
 
-  // drag selection highlight
   if (dragSel && role === 'player') {
     ctx.strokeStyle = 'rgba(255,255,255,0.75)';
     ctx.lineWidth   = 3;
@@ -229,17 +223,14 @@ function draw() {
 function drawBall(x, y, clr, white) {
   const cx = x + CELL / 2, cy = y + CELL / 2;
   const r  = CELL / 2 - PAD;
-
   ctx.beginPath();
   ctx.arc(cx + 2, cy + 3, r, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fill();
-
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = white ? '#ffffff' : COLORS[clr];
   ctx.fill();
-
   if (!white) {
     const grad = ctx.createRadialGradient(cx - r * .3, cy - r * .3, r * .1, cx, cy, r);
     grad.addColorStop(0, 'rgba(255,255,255,.25)');
@@ -276,56 +267,49 @@ canvas.addEventListener('mousedown', e => {
   dragStart = { x: e.clientX, y: e.clientY };
   draw();
 });
-
 canvas.addEventListener('mouseup', e => {
   if (!dragSel || !dragStart) return;
-  const dx = e.clientX - dragStart.x;
-  const dy = e.clientY - dragStart.y;
+  const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
   dragStart = null;
   if (Math.abs(dx) < 8 && Math.abs(dy) < 8) { dragSel = null; draw(); return; }
-  const dir = Math.abs(dx) > Math.abs(dy)
-    ? (dx > 0 ? 'right' : 'left')
-    : (dy > 0 ? 'down'  : 'up');
+  const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
   sendMove(dragSel.r, dragSel.c, dir);
   dragSel = null;
 });
-
 canvas.addEventListener('mouseleave', () => { dragSel = null; dragStart = null; draw(); });
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if (!canMove()) return;
   const t = e.touches[0];
-  dragSel   = cellAt(t);
-  dragStart = { x: t.clientX, y: t.clientY };
+  dragSel = cellAt(t); dragStart = { x: t.clientX, y: t.clientY };
   draw();
 }, { passive: false });
-
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
   if (!dragSel || !dragStart) return;
   const t = e.changedTouches[0];
-  const dx = t.clientX - dragStart.x;
-  const dy = t.clientY - dragStart.y;
+  const dx = t.clientX - dragStart.x, dy = t.clientY - dragStart.y;
   dragStart = null;
   if (Math.abs(dx) < 12 && Math.abs(dy) < 12) { dragSel = null; draw(); return; }
-  const dir = Math.abs(dx) > Math.abs(dy)
-    ? (dx > 0 ? 'right' : 'left')
-    : (dy > 0 ? 'down'  : 'up');
+  const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
   sendMove(dragSel.r, dragSel.c, dir);
   dragSel = null;
 }, { passive: false });
 
 function sendMove(r, c, dir) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'move', row: r, col: c, dir }));
-  }
 }
 
 function claimPlayer() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'claim' }));
-  }
+}
+
+function setMode(mode) {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: 'set_mode', mode }));
 }
 
 // ── meta UI ───────────────────────────────────────────────────────────────────
@@ -341,6 +325,21 @@ function setRole(r) {
   badge.textContent = r;
   badge.className   = r === 'observer' ? 'observer' : '';
   document.getElementById('claim-btn').style.display = r === 'observer' ? 'inline-block' : 'none';
+}
+
+function applyMode(m) {
+  gameMode = m;
+  document.getElementById('btn-demo').classList.toggle('active', m === 'demo');
+  document.getElementById('btn-attack').classList.toggle('active', m === 'attack');
+}
+
+function showGameOver(finalScore) {
+  document.getElementById('go-score').textContent = `Score: ${finalScore}`;
+  document.getElementById('gameover').classList.add('show');
+}
+
+function hideGameOver() {
+  document.getElementById('gameover').classList.remove('show');
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -369,6 +368,7 @@ function connect() {
       W = msg.width; H = msg.height;
       setSize();
       setRole(msg.role);
+      if (msg.mode) applyMode(msg.mode);
       return;
     }
 
@@ -377,7 +377,19 @@ function connect() {
       return;
     }
 
+    if (msg.type === 'game_over') {
+      gameStatus = 'gameover';
+      stopFlash();
+      swapAnim = null; fallAnim = null;
+      score = msg.score;
+      updateMeta();
+      draw();
+      showGameOver(msg.score);
+      return;
+    }
+
     if (msg.type === 'swap_anim') {
+      hideGameOver();
       swapAnim = {
         rowA: msg.rowA, colA: msg.colA,
         rowB: msg.rowB, colB: msg.colB,
@@ -396,16 +408,10 @@ function connect() {
       matchSet = new Set();
       gameStatus = 'falling';
       fallAnim = {
-        board:   msg.board,
-        score:   msg.score,
-        cascade: msg.cascade,
-        balls:   msg.balls.map(b => ({
-          color:   b.color,
-          col:     b.col,
-          fromRow: b.fromRow,
-          toRow:   b.toRow,
-          cur:     b.fromRow,
-          vel:     0,
+        board: msg.board, score: msg.score, cascade: msg.cascade,
+        balls: msg.balls.map(b => ({
+          color: b.color, col: b.col,
+          fromRow: b.fromRow, toRow: b.toRow, cur: b.fromRow, vel: 0,
         })),
       };
       scheduleFrame();
@@ -413,10 +419,10 @@ function connect() {
     }
 
     if (msg.type === 'state') {
-      // If a swap or fall animation is running, don't clobber the board mid-anim.
-      // Clearing state sets up the flash; waiting/invalid commit the board.
+      if (msg.mode) applyMode(msg.mode);
+      if (msg.status === 'waiting') hideGameOver();
+
       if (msg.status === 'clearing') {
-        // update board and matches so flash shows the right cells
         board    = msg.board;
         score    = msg.score;
         cascade  = msg.cascade || 0;
@@ -426,7 +432,6 @@ function connect() {
         startFlash();
         if (!swapAnim && !fallAnim) draw();
       } else {
-        // waiting or invalid: settle the board
         stopFlash();
         matchSet  = new Set();
         board     = msg.board;
@@ -434,10 +439,7 @@ function connect() {
         cascade   = msg.cascade || 0;
         gameStatus = msg.status;
         updateMeta();
-
-        const msgEl = document.getElementById('msg');
-        msgEl.textContent = msg.status === 'invalid' ? 'Invalid move — no match.' : '';
-
+        document.getElementById('msg').textContent = msg.status === 'invalid' ? 'Invalid move — no match.' : '';
         if (!swapAnim && !fallAnim) draw();
       }
     }

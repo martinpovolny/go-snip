@@ -4,7 +4,7 @@ REMOTE     := ora-m
 DEPLOY_DIR := /opt/ballfall
 TMP        := tmp
 
-.PHONY: build linux-amd64 linux-arm64 deploy install clean status logs
+.PHONY: build linux-amd64 linux-arm64 deploy install clean status logs test test-integration
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
@@ -12,12 +12,12 @@ build:
 
 linux-amd64:
 	mkdir -p $(TMP)
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-amd64 .
+	GOOS=linux GOARCH=amd64 go build -tags nogui $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-amd64 .
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(TMP)/connect3-linux-amd64 ./cmd/connect3
 
 linux-arm64:
 	mkdir -p $(TMP)
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-arm64 .
+	GOOS=linux GOARCH=arm64 go build -tags nogui $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-arm64 .
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(TMP)/connect3-linux-arm64 ./cmd/connect3
 
 # Routine update: build, copy binary, restart service.
@@ -46,6 +46,12 @@ status:
 
 logs:
 	ssh $(REMOTE) 'sudo journalctl -u $(BINARY) -f'
+
+test:
+	go test -count=1 ./...
+
+test-integration:
+	go test -tags integration -count=1 -v -timeout 90s .
 
 clean:
 	rm -rf $(TMP) $(BINARY)

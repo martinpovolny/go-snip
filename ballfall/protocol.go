@@ -11,24 +11,39 @@ type MoveMsg struct {
 	Dir  string `json:"dir"` // "left" | "right" | "up" | "down"
 }
 
+// SetModeMsg is sent by a player client to switch game mode.
+type SetModeMsg struct {
+	Type string `json:"type"` // "set_mode"
+	Mode string `json:"mode"` // "demo" | "attack"
+}
+
 // StateMsg is broadcast to all clients after every significant state change.
 type StateMsg struct {
-	Type    string  `json:"type"`    // "state"
-	Board   [][]int `json:"board"`   // [row][col], 0=empty, 1-4=color
-	Width   int     `json:"width"`
-	Height  int     `json:"height"`
-	Score   int     `json:"score"`
-	Status  string  `json:"status"`            // "waiting" | "clearing" | "invalid"
+	Type    string   `json:"type"`              // "state"
+	Board   [][]int  `json:"board"`             // [row][col], 0=empty, 1-4=color
+	Width   int      `json:"width"`
+	Height  int      `json:"height"`
+	Score   int      `json:"score"`
+	Status  string   `json:"status"`            // "waiting" | "clearing" | "invalid" | "gameover"
 	Matches [][2]int `json:"matches,omitempty"` // cells being cleared
-	Cascade int     `json:"cascade"`
+	Cascade int      `json:"cascade"`
+	Mode    string   `json:"mode"`              // "demo" | "attack"
 }
 
 // WelcomeMsg is sent once when a client connects.
 type WelcomeMsg struct {
-	Type   string `json:"type"` // "welcome"
-	Role   string `json:"role"` // "player" | "observer"
+	Type   string `json:"type"`   // "welcome"
+	Role   string `json:"role"`   // "player" | "observer"
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+	Mode   string `json:"mode"`   // "demo" | "attack"
+}
+
+// GameOverMsg is broadcast in Ball Attack mode when the game ends.
+type GameOverMsg struct {
+	Type  string `json:"type"`  // "game_over"
+	Score int    `json:"score"`
+	Mode  string `json:"mode"`  // "attack"
 }
 
 // SwapAnimMsg is broadcast when a swap animation begins.
@@ -54,11 +69,11 @@ type FallBallData struct {
 // FallAnimMsg is broadcast when gravity+fill animation begins.
 // Board is the final board state (after gravity and refill).
 type FallAnimMsg struct {
-	Type  string         `json:"type"` // "fall_anim"
-	Board [][]int        `json:"board"`
-	Balls []FallBallData `json:"balls"`
-	Score int            `json:"score"`
-	Cascade int          `json:"cascade"`
+	Type    string         `json:"type"` // "fall_anim"
+	Board   [][]int        `json:"board"`
+	Balls   []FallBallData `json:"balls"`
+	Score   int            `json:"score"`
+	Cascade int            `json:"cascade"`
 }
 
 // RoleMsg is sent to a specific client when its role changes.

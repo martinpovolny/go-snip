@@ -74,6 +74,11 @@ func handleWS(w http.ResponseWriter, r *http.Request, h *Hub) {
 				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
 			}
 			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
+		case "set_mode":
+			var sm SetModeMsg
+			if err := json.Unmarshal(msg, &sm); err == nil {
+				h.DispatchMode(c, sm)
+			}
 		}
 	}
 	<-done
