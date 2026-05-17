@@ -199,7 +199,7 @@ func (b *Board) print() {
 	for c := 1; c <= cols; c++ {
 		fmt.Printf("%d ", c)
 	}
-	fmt.Println("\n")
+	fmt.Println()
 }
 
 func readLine(r *bufio.Reader) string {

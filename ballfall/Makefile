@@ -8,14 +8,17 @@ TMP        := tmp
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
+	go build $(LDFLAGS) -o connect3 ./cmd/connect3
 
 linux-amd64:
 	mkdir -p $(TMP)
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-amd64 .
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(TMP)/connect3-linux-amd64 ./cmd/connect3
 
 linux-arm64:
 	mkdir -p $(TMP)
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(TMP)/$(BINARY)-linux-arm64 .
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(TMP)/connect3-linux-arm64 ./cmd/connect3
 
 # Routine update: build, copy binary, restart service.
 # Web UI is embedded in the binary — no separate static files needed.

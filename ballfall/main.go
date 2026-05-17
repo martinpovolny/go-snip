@@ -46,7 +46,7 @@ func main() {
 		return
 	}
 
-	ebiten.SetWindowSize(winW*2, winH*2)
+	ebiten.SetWindowSize(winW, winH)
 	ebiten.SetWindowTitle("Ball Fall — match 3 to score!")
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
