@@ -37,8 +37,9 @@ func (g *Game) handleMouse() {
 			return
 		}
 
-		// Grid drag-to-swap.
-		if g.state != stateWaiting {
+		// Grid drag-to-swap. Queue through hub.MoveIn so the move is held
+		// if an animation is in progress and applied when stateWaiting resumes.
+		if g.state == stateGameOver {
 			return
 		}
 		const minDrag = cellSize * 0.35
@@ -59,7 +60,10 @@ func (g *Game) handleMouse() {
 				dir = "up"
 			}
 		}
-		g.initiateSwap(g.dragStartCell, dir)
+		select {
+		case g.hub.MoveIn <- MoveMsg{Row: g.dragStartCell.R, Col: g.dragStartCell.C, Dir: dir}:
+		default:
+		}
 		return
 	}
 

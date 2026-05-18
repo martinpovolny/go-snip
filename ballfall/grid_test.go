@@ -549,3 +549,21 @@ func TestNewAttackGrid_BottomTwoRowsFilled(t *testing.T) {
 		}
 	}
 }
+
+func TestNewAttackGrid_NoInitialMatches(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		g := NewAttackGrid()
+		if m := g.FindMatches(); len(m) != 0 {
+			t.Fatalf("iteration %d: NewAttackGrid has %d initial matched cells", i, len(m))
+		}
+	}
+}
+
+func TestNewGrid_NoInitialMatches(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		g := NewGrid()
+		if m := g.FindMatches(); len(m) != 0 {
+			t.Fatalf("iteration %d: NewGrid has %d initial matched cells", i, len(m))
+		}
+	}
+}

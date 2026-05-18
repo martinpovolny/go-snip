@@ -257,8 +257,10 @@ function cellAt(e) {
   };
 }
 
+// canMove checks server-side readiness only; client-side animations are cosmetic
+// and shouldn't block the user from queuing the next move.
 function canMove() {
-  return role === 'player' && gameStatus === 'waiting' && !swapAnim && !fallAnim;
+  return role === 'player' && gameStatus === 'waiting';
 }
 
 canvas.addEventListener('mousedown', e => {
@@ -270,11 +272,12 @@ canvas.addEventListener('mousedown', e => {
 canvas.addEventListener('mouseup', e => {
   if (!dragSel || !dragStart) return;
   const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
-  dragStart = null;
-  if (Math.abs(dx) < 8 && Math.abs(dy) < 8) { dragSel = null; draw(); return; }
+  const sel = dragSel;
+  dragSel = null; dragStart = null;
+  draw();
+  if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
   const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  sendMove(dragSel.r, dragSel.c, dir);
-  dragSel = null;
+  sendMove(sel.r, sel.c, dir);
 });
 canvas.addEventListener('mouseleave', () => { dragSel = null; dragStart = null; draw(); });
 
@@ -290,11 +293,12 @@ canvas.addEventListener('touchend', e => {
   if (!dragSel || !dragStart) return;
   const t = e.changedTouches[0];
   const dx = t.clientX - dragStart.x, dy = t.clientY - dragStart.y;
-  dragStart = null;
-  if (Math.abs(dx) < 12 && Math.abs(dy) < 12) { dragSel = null; draw(); return; }
+  const sel = dragSel;
+  dragSel = null; dragStart = null;
+  draw();
+  if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
   const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  sendMove(dragSel.r, dragSel.c, dir);
-  dragSel = null;
+  sendMove(sel.r, sel.c, dir);
 }, { passive: false });
 
 function sendMove(r, c, dir) {
@@ -381,6 +385,7 @@ function connect() {
       gameStatus = 'gameover';
       stopFlash();
       swapAnim = null; fallAnim = null;
+      dragSel = null; dragStart = null; // discard any in-flight drag
       score = msg.score;
       updateMeta();
       draw();

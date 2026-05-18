@@ -227,6 +227,7 @@ func (g *Game) dropBall() {
 	if landRow < 0 {
 		// Column is full — game over.
 		g.state = stateGameOver
+		g.mouseDown = false // discard any held click so it can't immediately dismiss the overlay
 		score := g.score
 		g.mu.Unlock()
 		g.hub.Broadcast(GameOverMsg{Type: "game_over", Score: score, Mode: "attack"})
@@ -386,6 +387,12 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 	g.mu.Lock()
 	colorA := g.grid.Cells[from.R][from.C]
 	colorB := g.grid.Cells[to.R][to.C]
+	// Can't drag from an empty cell, and moving a ball upward into empty
+	// space makes no sense in a gravity game.
+	if colorA == ColorNone || (colorB == ColorNone && dr < 0) {
+		g.mu.Unlock()
+		return
+	}
 	g.grid.Swap(from, to)
 	groups := g.grid.FindMatchGroups()
 	g.swapValid = len(groups) > 0

@@ -48,12 +48,21 @@ func (g *Grid) GravityOnly() []FallingBall {
 }
 
 // NewAttackGrid creates a grid for Ball Attack mode: only the bottom 2 rows
-// are filled; rows 0–7 are empty.
+// are filled; rows 0–7 are empty. The filled rows are guaranteed match-free.
 func NewAttackGrid() *Grid {
 	g := &Grid{}
 	for r := GridH - 2; r < GridH; r++ {
 		for c := 0; c < GridW; c++ {
 			g.Cells[r][c] = rand.Intn(numColors) + 1
+		}
+	}
+	for {
+		matches := g.FindMatches()
+		if len(matches) == 0 {
+			break
+		}
+		for _, p := range matches {
+			g.Cells[p.R][p.C] = rand.Intn(numColors) + 1
 		}
 	}
 	return g
