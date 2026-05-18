@@ -79,7 +79,7 @@ func (g *Game) handleMouse() {
 	// ── Hover highlight (grid area only) ────────────────────────────────────
 	gridY := py - hudH
 	hc := Pos{int(gridY) / cellSize, int(px) / cellSize}
-	if gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW {
+	if gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW && !g.grid.Bricks[hc.R][hc.C] {
 		g.hoverCell = hc
 		g.hoverValid = true
 	} else {

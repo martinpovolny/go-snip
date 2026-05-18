@@ -76,6 +76,7 @@ const COLORS = [null, '#dc3c3c', '#3cc850', '#3c78dc', '#e6c832'];
 
 let W = 8, H = 10;
 let board    = [];
+let bricks   = [];
 let matchSet = new Set();
 let score    = 0;
 let cascade  = 0;
@@ -185,6 +186,7 @@ function draw() {
       ctx.fillStyle = '#282838';
       ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
 
+      if (bricks[r] && bricks[r][c]) { drawBrick(x, y); continue; }
       if (suppress.has(`${r},${c}`)) continue;
       const clr = board[r] && board[r][c];
       if (!clr) continue;
@@ -218,6 +220,23 @@ function draw() {
     ctx.lineWidth   = 3;
     ctx.strokeRect(dragSel.c * CELL + 3, dragSel.r * CELL + 3, CELL - 6, CELL - 6);
   }
+}
+
+function drawBrick(x, y) {
+  const p = 3, fp = 5;
+  const half = (CELL - 2 * fp) / 2;
+  ctx.fillStyle = '#5f4630';
+  ctx.fillRect(x + p, y + p, CELL - 2 * p, CELL - 2 * p);
+  ctx.fillStyle = '#785a3a';
+  ctx.fillRect(x + fp, y + fp,          CELL - 2 * fp, half - 1);
+  ctx.fillRect(x + fp, y + fp + half + 1, CELL - 2 * fp, half - 1);
+  ctx.fillStyle = '#372616';
+  ctx.fillRect(x + p, y + fp + half - 1, CELL - 2 * p, 2);  // horizontal mortar
+  ctx.fillRect(x + CELL / 2 - 1, y + fp, 2, half - 1);       // top-half vertical
+  ctx.fillRect(x + CELL / 4 - 1, y + fp + half + 1, 2, half - 1); // bottom-half left
+  ctx.fillRect(x + 3 * CELL / 4 - 1, y + fp + half + 1, 2, half - 1); // bottom-half right
+  ctx.fillStyle = 'rgba(255,200,140,0.18)';
+  ctx.fillRect(x + fp, y + fp + 1, CELL - 2 * fp, 3);        // top highlight
 }
 
 function drawBall(x, y, clr, white) {
@@ -412,6 +431,7 @@ function connect() {
       stopFlash();
       matchSet = new Set();
       gameStatus = 'falling';
+      if (msg.bricks) bricks = msg.bricks;
       fallAnim = {
         board: msg.board, score: msg.score, cascade: msg.cascade,
         balls: msg.balls.map(b => ({
@@ -426,6 +446,7 @@ function connect() {
     if (msg.type === 'state') {
       if (msg.mode) applyMode(msg.mode);
       if (msg.status === 'waiting') hideGameOver();
+      if (msg.bricks) bricks = msg.bricks;
 
       if (msg.status === 'clearing') {
         board    = msg.board;

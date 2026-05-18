@@ -12,34 +12,59 @@ const (
 	ColorBlue   = 3
 	ColorYellow = 4
 	numColors   = 4
+
+	numBricks = 4 // number of brick obstacles placed in Demo mode
 )
 
 // Grid holds the board state. Row 0 is the top.
+// Bricks are static obstacles that block cells; they are separate from ball colors.
 type Grid struct {
-	Cells [GridH][GridW]int
+	Cells  [GridH][GridW]int
+	Bricks [GridH][GridW]bool
 }
 
-// GravityOnly compacts each column downward without filling empty cells.
+// columnSegments returns the contiguous row ranges within column c that are not
+// occupied by bricks. Each segment is [top, bottom] inclusive.
+func (g *Grid) columnSegments(c int) [][2]int {
+	var segs [][2]int
+	start := 0
+	for r := 0; r < GridH; r++ {
+		if g.Bricks[r][c] {
+			if r > start {
+				segs = append(segs, [2]int{start, r - 1})
+			}
+			start = r + 1
+		}
+	}
+	if start < GridH {
+		segs = append(segs, [2]int{start, GridH - 1})
+	}
+	return segs
+}
+
+// GravityOnly compacts each column segment downward without filling empty cells.
 // Returns animation data for every ball that moved.
 func (g *Grid) GravityOnly() []FallingBall {
 	var falls []FallingBall
 	for c := 0; c < GridW; c++ {
-		type ballSrc struct{ color, srcRow int }
-		var stack []ballSrc
-		for r := GridH - 1; r >= 0; r-- {
-			if g.Cells[r][c] != ColorNone {
-				stack = append(stack, ballSrc{g.Cells[r][c], r})
-			}
-		}
-		for r := GridH - 1; r >= 0; r-- {
-			idx := GridH - 1 - r
-			if idx < len(stack) {
-				ball := stack[idx]
-				g.Cells[r][c] = ball.color
-				if ball.srcRow != r {
-					falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), float64(r)})
+		for _, seg := range g.columnSegments(c) {
+			top, bottom := seg[0], seg[1]
+			type ballSrc struct{ color, srcRow int }
+			var stack []ballSrc
+			for r := bottom; r >= top; r-- {
+				if g.Cells[r][c] != ColorNone {
+					stack = append(stack, ballSrc{g.Cells[r][c], r})
 				}
-			} else {
+			}
+			writeRow := bottom
+			for _, ball := range stack {
+				g.Cells[writeRow][c] = ball.color
+				if ball.srcRow != writeRow {
+					falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), float64(writeRow)})
+				}
+				writeRow--
+			}
+			for r := writeRow; r >= top; r-- {
 				g.Cells[r][c] = ColorNone
 			}
 		}
@@ -49,6 +74,7 @@ func (g *Grid) GravityOnly() []FallingBall {
 
 // NewAttackGrid creates a grid for Ball Attack mode: only the bottom 2 rows
 // are filled; rows 0–7 are empty. The filled rows are guaranteed match-free.
+// No bricks in attack mode.
 func NewAttackGrid() *Grid {
 	g := &Grid{}
 	for r := GridH - 2; r < GridH; r++ {
@@ -68,26 +94,39 @@ func NewAttackGrid() *Grid {
 	return g
 }
 
-// NewGrid creates a randomly filled grid with no pre-existing matches.
+// NewGrid creates a randomly filled grid with no pre-existing matches and a
+// small number of brick obstacles placed at random non-adjacent positions.
 func NewGrid() *Grid {
 	g := &Grid{}
-	for {
-		for r := 0; r < GridH; r++ {
-			for c := 0; c < GridW; c++ {
+
+	// Place bricks first so gravity segments are established before filling.
+	for placed := 0; placed < numBricks; {
+		r := rand.Intn(GridH)
+		c := rand.Intn(GridW)
+		if !g.Bricks[r][c] {
+			g.Bricks[r][c] = true
+			placed++
+		}
+	}
+
+	// Fill non-brick cells with random colors.
+	for r := 0; r < GridH; r++ {
+		for c := 0; c < GridW; c++ {
+			if !g.Bricks[r][c] {
 				g.Cells[r][c] = rand.Intn(numColors) + 1
 			}
 		}
-		// resolve any initial matches by rerolling those cells
-		for {
-			matches := g.FindMatches()
-			if len(matches) == 0 {
-				break
-			}
-			for _, p := range matches {
-				g.Cells[p.R][p.C] = rand.Intn(numColors) + 1
-			}
+	}
+
+	// Resolve any initial matches by rerolling matched cells.
+	for {
+		matches := g.FindMatches()
+		if len(matches) == 0 {
+			break
 		}
-		break
+		for _, p := range matches {
+			g.Cells[p.R][p.C] = rand.Intn(numColors) + 1
+		}
 	}
 	return g
 }
@@ -101,6 +140,40 @@ func (g *Grid) Snapshot() [][]int {
 		copy(out[r], g.Cells[r][:])
 	}
 	return out
+}
+
+// BrickSnapshot returns a 2D slice copy of the brick layout.
+func (g *Grid) BrickSnapshot() [][]bool {
+	out := make([][]bool, GridH)
+	for r := 0; r < GridH; r++ {
+		out[r] = make([]bool, GridW)
+		copy(out[r], g.Bricks[r][:])
+	}
+	return out
+}
+
+// DestroyAdjacentBricks removes any brick that is orthogonally adjacent to a
+// matched cell. Returns the positions of the destroyed bricks.
+func (g *Grid) DestroyAdjacentBricks(matches []Pos) []Pos {
+	dirs := [4][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
+	destroyed := map[Pos]bool{}
+	for _, p := range matches {
+		for _, d := range dirs {
+			np := Pos{p.R + d[0], p.C + d[1]}
+			if np.R < 0 || np.R >= GridH || np.C < 0 || np.C >= GridW {
+				continue
+			}
+			if g.Bricks[np.R][np.C] && !destroyed[np] {
+				destroyed[np] = true
+				g.Bricks[np.R][np.C] = false
+			}
+		}
+	}
+	result := make([]Pos, 0, len(destroyed))
+	for p := range destroyed {
+		result = append(result, p)
+	}
+	return result
 }
 
 // Swap exchanges two adjacent cells.
@@ -185,22 +258,23 @@ func (g *Grid) ClearMatches(matches []Pos) {
 	}
 }
 
-// ApplyGravity compacts each column downward (row GridH-1 = bottom).
+// ApplyGravity compacts each column segment downward (row GridH-1 = bottom).
 func (g *Grid) ApplyGravity() {
 	for c := 0; c < GridW; c++ {
-		// collect non-empty cells bottom-to-top
-		stack := make([]int, 0, GridH)
-		for r := GridH - 1; r >= 0; r-- {
-			if g.Cells[r][c] != ColorNone {
-				stack = append(stack, g.Cells[r][c])
+		for _, seg := range g.columnSegments(c) {
+			top, bottom := seg[0], seg[1]
+			stack := make([]int, 0, bottom-top+1)
+			for r := bottom; r >= top; r-- {
+				if g.Cells[r][c] != ColorNone {
+					stack = append(stack, g.Cells[r][c])
+				}
 			}
-		}
-		// rewrite column
-		for r := GridH - 1; r >= 0; r-- {
-			idx := GridH - 1 - r
-			if idx < len(stack) {
-				g.Cells[r][c] = stack[idx]
-			} else {
+			writeRow := bottom
+			for _, clr := range stack {
+				g.Cells[writeRow][c] = clr
+				writeRow--
+			}
+			for r := writeRow; r >= top; r-- {
 				g.Cells[r][c] = ColorNone
 			}
 		}
@@ -226,45 +300,48 @@ type FallingBall struct {
 	ToRow       float64 // grid row where it lands
 }
 
-// GravityAndFill applies gravity and fills empty cells, returning animation data
-// for every ball that moved or was spawned.
+// GravityAndFill applies gravity per column-segment. Only the topmost segment
+// in each column (top == 0) receives new random balls from above the grid;
+// segments below a brick compact their existing balls downward but are not
+// refilled — spawning a ball from above the grid into a lower segment would
+// require it to animate through the brick above it.
 func (g *Grid) GravityAndFill() []FallingBall {
 	var falls []FallingBall
 	for c := 0; c < GridW; c++ {
-		// collect existing balls bottom-to-top, tracking source rows
-		type ballSrc struct{ color, srcRow int }
-		var stack []ballSrc
-		for r := GridH - 1; r >= 0; r-- {
-			if g.Cells[r][c] != ColorNone {
-				stack = append(stack, ballSrc{g.Cells[r][c], r})
+		for _, seg := range g.columnSegments(c) {
+			top, bottom := seg[0], seg[1]
+
+			type ballSrc struct{ color, srcRow int }
+			var stack []ballSrc
+			for r := bottom; r >= top; r-- {
+				if g.Cells[r][c] != ColorNone {
+					stack = append(stack, ballSrc{g.Cells[r][c], r})
+				}
 			}
-		}
-		// how many new balls needed?
-		gaps := GridH - len(stack)
-		// New balls fill the top `gaps` rows. The rewrite loop (below) assigns
-		// stack[GridH-gaps+j] → row j (top-to-bottom within the gap), so we
-		// append in the order that places spawnRow=-1 at the bottom of the gap
-		// and spawnRow=-gaps at the top. All balls fall the same distance (gaps rows).
-		for i := 0; i < gaps; i++ {
-			clr := rand.Intn(numColors) + 1
-			// stack position GridH-gaps+i → row gaps-1-i
-			destRow := float64(gaps - 1 - i)
-			spawnRow := float64(-(i + 1)) // -1, -2, ..., -gaps
-			falls = append(falls, FallingBall{clr, c, spawnRow, destRow})
-			stack = append(stack, ballSrc{clr, -1})
-		}
-		// rewrite column and record which existing balls moved
-		for r := GridH - 1; r >= 0; r-- {
-			idx := GridH - 1 - r
-			ball := stack[idx]
-			g.Cells[r][c] = ball.color
-			destRow := float64(r)
-			if ball.srcRow == -1 {
-				// already recorded above
-				continue
+
+			// New balls only enter from the very top of the grid.
+			if top == 0 {
+				gaps := (bottom - top + 1) - len(stack)
+				for i := 0; i < gaps; i++ {
+					clr := rand.Intn(numColors) + 1
+					destRow := float64(gaps - 1 - i) // top==0, so top+gaps-1-i == gaps-1-i
+					spawnRow := float64(-(i + 1))
+					falls = append(falls, FallingBall{clr, c, spawnRow, destRow})
+					stack = append(stack, ballSrc{clr, -1})
+				}
 			}
-			if ball.srcRow != r {
-				falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), destRow})
+
+			// Write segment bottom-to-top: compact balls, clear remaining rows.
+			writeRow := bottom
+			for _, ball := range stack {
+				g.Cells[writeRow][c] = ball.color
+				if ball.srcRow != -1 && ball.srcRow != writeRow {
+					falls = append(falls, FallingBall{ball.color, c, float64(ball.srcRow), float64(writeRow)})
+				}
+				writeRow--
+			}
+			for r := writeRow; r >= top; r-- {
+				g.Cells[r][c] = ColorNone
 			}
 		}
 	}

@@ -21,6 +21,7 @@ type SetModeMsg struct {
 type StateMsg struct {
 	Type    string   `json:"type"`              // "state"
 	Board   [][]int  `json:"board"`             // [row][col], 0=empty, 1-4=color
+	Bricks  [][]bool `json:"bricks"`            // [row][col], true=brick present
 	Width   int      `json:"width"`
 	Height  int      `json:"height"`
 	Score   int      `json:"score"`
@@ -67,10 +68,11 @@ type FallBallData struct {
 }
 
 // FallAnimMsg is broadcast when gravity+fill animation begins.
-// Board is the final board state (after gravity and refill).
+// Board and Bricks reflect the final state after gravity, refill, and brick destruction.
 type FallAnimMsg struct {
 	Type    string         `json:"type"` // "fall_anim"
 	Board   [][]int        `json:"board"`
+	Bricks  [][]bool       `json:"bricks"`
 	Balls   []FallBallData `json:"balls"`
 	Score   int            `json:"score"`
 	Cascade int            `json:"cascade"`

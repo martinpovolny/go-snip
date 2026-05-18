@@ -124,6 +124,7 @@ func (g *Game) snapshot(status string) StateMsg {
 	msg := StateMsg{
 		Type:    "state",
 		Board:   g.grid.Snapshot(),
+		Bricks:  g.grid.BrickSnapshot(),
 		Width:   GridW,
 		Height:  GridH,
 		Score:   g.score,
@@ -163,6 +164,7 @@ func (g *Game) checkCascade() {
 	g.mu.Lock()
 	g.grid.ClearMatches(g.current)
 	g.score += len(g.current)
+	g.grid.DestroyAdjacentBricks(g.current)
 	var falls []FallingBall
 	if g.mode == modeAttack {
 		falls = g.grid.GravityOnly()
@@ -197,12 +199,14 @@ func (g *Game) startFalling(falls []FallingBall, nextGroups [][]Pos) {
 	}
 	g.mu.Lock()
 	board := g.grid.Snapshot()
+	bricks := g.grid.BrickSnapshot()
 	score := g.score
 	cascade := g.cascade
 	g.mu.Unlock()
 	g.hub.Broadcast(FallAnimMsg{
 		Type:    "fall_anim",
 		Board:   board,
+		Bricks:  bricks,
 		Balls:   balls,
 		Score:   score,
 		Cascade: cascade,
@@ -390,6 +394,11 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 	// Can't drag from an empty cell, and moving a ball upward into empty
 	// space makes no sense in a gravity game.
 	if colorA == ColorNone || (colorB == ColorNone && dr < 0) {
+		g.mu.Unlock()
+		return
+	}
+	// Bricks are immovable obstacles.
+	if g.grid.Bricks[from.R][from.C] || g.grid.Bricks[to.R][to.C] {
 		g.mu.Unlock()
 		return
 	}

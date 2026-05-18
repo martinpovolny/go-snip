@@ -567,3 +567,218 @@ func TestNewGrid_NoInitialMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestNewGrid_HasBricks(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		g := NewGrid()
+		count := 0
+		for r := 0; r < GridH; r++ {
+			for c := 0; c < GridW; c++ {
+				if g.Bricks[r][c] {
+					count++
+					if g.Cells[r][c] != ColorNone {
+						t.Errorf("brick cell at (%d,%d) should have ColorNone, got %d", r, c, g.Cells[r][c])
+					}
+				}
+			}
+		}
+		if count != numBricks {
+			t.Errorf("iteration %d: expected %d bricks, got %d", i, numBricks, count)
+		}
+	}
+}
+
+// ── brick mechanics ───────────────────────────────────────────────────────────
+
+func TestDestroyAdjacentBricks_Basic(t *testing.T) {
+	g := &Grid{}
+	g.Bricks[5][3] = true // brick adjacent to match at (5,2)
+	g.Bricks[3][3] = true // brick NOT adjacent
+
+	matches := []Pos{{5, 2}, {5, 1}, {5, 0}}
+	destroyed := g.DestroyAdjacentBricks(matches)
+
+	if len(destroyed) != 1 {
+		t.Fatalf("expected 1 brick destroyed, got %d", len(destroyed))
+	}
+	if g.Bricks[5][3] {
+		t.Error("brick at (5,3) should have been destroyed")
+	}
+	if !g.Bricks[3][3] {
+		t.Error("brick at (3,3) should still be present")
+	}
+}
+
+func TestDestroyAdjacentBricks_MultipleFromOneMatch(t *testing.T) {
+	g := &Grid{}
+	// Surround one match cell with bricks on all 4 sides.
+	g.Bricks[4][5] = true
+	g.Bricks[6][5] = true
+	g.Bricks[5][4] = true
+	g.Bricks[5][6] = true
+
+	matches := []Pos{{5, 5}}
+	destroyed := g.DestroyAdjacentBricks(matches)
+	if len(destroyed) != 4 {
+		t.Fatalf("expected 4 bricks destroyed, got %d", len(destroyed))
+	}
+}
+
+func TestDestroyAdjacentBricks_NoneAdjacent(t *testing.T) {
+	g := &Grid{}
+	g.Bricks[0][0] = true
+
+	matches := []Pos{{9, 7}, {9, 6}, {9, 5}}
+	destroyed := g.DestroyAdjacentBricks(matches)
+	if len(destroyed) != 0 {
+		t.Fatalf("expected 0 destroyed, got %d", len(destroyed))
+	}
+	if !g.Bricks[0][0] {
+		t.Error("distant brick should be unchanged")
+	}
+}
+
+// ── segment-aware gravity ─────────────────────────────────────────────────────
+
+func TestColumnSegments_NoBricks(t *testing.T) {
+	g := &Grid{}
+	segs := g.columnSegments(0)
+	if len(segs) != 1 || segs[0][0] != 0 || segs[0][1] != GridH-1 {
+		t.Errorf("no-brick column should be one full segment, got %v", segs)
+	}
+}
+
+func TestColumnSegments_BrickAtMiddle(t *testing.T) {
+	g := &Grid{}
+	g.Bricks[5][0] = true
+	segs := g.columnSegments(0)
+	if len(segs) != 2 {
+		t.Fatalf("expected 2 segments, got %d: %v", len(segs), segs)
+	}
+	if segs[0] != [2]int{0, 4} {
+		t.Errorf("first segment wrong: got %v, want {0,4}", segs[0])
+	}
+	if segs[1] != [2]int{6, GridH - 1} {
+		t.Errorf("second segment wrong: got %v, want {6,%d}", segs[1], GridH-1)
+	}
+}
+
+func TestColumnSegments_BrickAtTop(t *testing.T) {
+	g := &Grid{}
+	g.Bricks[0][0] = true
+	segs := g.columnSegments(0)
+	if len(segs) != 1 || segs[0][0] != 1 || segs[0][1] != GridH-1 {
+		t.Errorf("expected single segment [1,%d], got %v", GridH-1, segs)
+	}
+}
+
+func TestGravityOnly_StopsAtBrick(t *testing.T) {
+	// Column 0: brick at row 5, ball at row 0.
+	// Ball should fall to row 4 (top of segment above brick) but not below the brick.
+	g := &Grid{}
+	g.Bricks[5][0] = true
+	g.Cells[0][0] = ColorRed
+
+	g.GravityOnly()
+
+	if g.Cells[4][0] != ColorRed {
+		t.Errorf("ball should stop at row 4 (just above brick), got %d", g.Cells[4][0])
+	}
+	// Below brick: segment [6,GridH-1] should remain empty.
+	for r := 6; r < GridH; r++ {
+		if g.Cells[r][0] != ColorNone {
+			t.Errorf("row %d (below brick) should be empty", r)
+		}
+	}
+}
+
+func TestGravityAndFill_SegmentsFilledIndependently(t *testing.T) {
+	// Brick at row 5 splits column 0 into [0,4] and [6,9].
+	// Only the top segment [0,4] receives new balls from above.
+	// The lower segment [6,9] compacts existing balls but gets no new ones.
+	g := &Grid{}
+	g.Bricks[5][0] = true
+
+	g.GravityAndFill()
+
+	// Top segment must be fully filled.
+	for r := 0; r < 5; r++ {
+		if g.Cells[r][0] == ColorNone {
+			t.Errorf("top segment row %d should be filled after GravityAndFill, got empty", r)
+		}
+	}
+	// Brick row must stay empty.
+	if g.Cells[5][0] != ColorNone {
+		t.Errorf("brick row should stay ColorNone, got %d", g.Cells[5][0])
+	}
+	// Lower segment had no balls and should not receive new ones.
+	for r := 6; r < GridH; r++ {
+		if g.Cells[r][0] != ColorNone {
+			t.Errorf("lower segment row %d should stay empty (no balls pass through brick), got %d", r, g.Cells[r][0])
+		}
+	}
+}
+
+func TestGravityAndFill_NoNewBallsThroughBrick(t *testing.T) {
+	// Brick at row 3 splits column 0 into [0,2] and [4,9].
+	// Ball at row 1 compacts into the top segment; lower segment stays empty.
+	// No FallingBall animation should have FromRow < 0 with ToRow >= 4
+	// (that would mean a ball spawned above the grid and animated through the brick).
+	g := &Grid{}
+	g.Bricks[3][0] = true
+	g.Cells[1][0] = ColorRed
+
+	falls := g.GravityAndFill()
+
+	for _, f := range falls {
+		if f.Col == 0 && f.FromRow < 0 && f.ToRow >= 4 {
+			t.Errorf("ball spawned above grid (FromRow=%.1f) landed at row %.1f — passed through brick at row 3", f.FromRow, f.ToRow)
+		}
+	}
+	for r := 4; r < GridH; r++ {
+		if g.Cells[r][0] != ColorNone {
+			t.Errorf("lower segment cell [%d][0] = %d, want empty (brick blocks new balls)", r, g.Cells[r][0])
+		}
+	}
+}
+
+func TestGravityAndFill_ExistingBallBelowBrickCompacts(t *testing.T) {
+	// Existing balls below a brick should compact within their segment.
+	g := &Grid{}
+	g.Bricks[2][0] = true
+	// Lower segment [3,9]: ball floating at row 5.
+	g.Cells[5][0] = ColorBlue
+
+	g.GravityAndFill()
+
+	// Blue should compact to row 9 (bottom of lower segment).
+	if g.Cells[9][0] != ColorBlue {
+		t.Errorf("Cells[9][0] = %d, want ColorBlue (%d)", g.Cells[9][0], ColorBlue)
+	}
+	// Row 5 should now be empty.
+	if g.Cells[5][0] != ColorNone {
+		t.Errorf("Cells[5][0] = %d, want ColorNone after compaction", g.Cells[5][0])
+	}
+	// Rows 3–8 other than 9 should all be empty (no fill).
+	for r := 3; r < 9; r++ {
+		if g.Cells[r][0] != ColorNone {
+			t.Errorf("lower segment row %d = %d, want empty (no refill below brick)", r, g.Cells[r][0])
+		}
+	}
+}
+
+func TestBrickSnapshot_AccurateAndIndependent(t *testing.T) {
+	g := &Grid{}
+	g.Bricks[2][3] = true
+	g.Bricks[7][1] = true
+
+	snap := g.BrickSnapshot()
+	if !snap[2][3] || !snap[7][1] {
+		t.Error("snapshot should reflect placed bricks")
+	}
+	// Mutating snapshot should not affect original.
+	snap[2][3] = false
+	if !g.Bricks[2][3] {
+		t.Error("BrickSnapshot should be an independent copy")
+	}
+}

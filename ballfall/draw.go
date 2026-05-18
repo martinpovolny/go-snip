@@ -87,6 +87,10 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 			vector.DrawFilledRect(screen, x+2, y+2, cellSize-4, cellSize-4,
 				color.RGBA{38, 40, 52, 255}, false)
 
+			if g.grid.Bricks[r][c] {
+				drawBrick(screen, x, y)
+				continue
+			}
 			if swapHide[Pos{r, c}] || fallDest[Pos{r, c}] {
 				continue
 			}
@@ -97,7 +101,9 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 			p := Pos{r, c}
 			if g.matchMS != nil && g.matchMS[p] {
 				if flash {
-					drawBall(screen, x, y, color.RGBA{255, 255, 255, 220})
+					drawBallFlash(screen, x, y, palette[clr])
+				} else {
+					drawBall(screen, x, y, palette[clr])
 				}
 			} else if g.hoverValid && g.hoverCell == p && state == stateWaiting {
 				drawBallHighlight(screen, x, y, palette[clr])
@@ -152,6 +158,35 @@ func drawModeBtn(screen *ebiten.Image, x, y, w, h float32, label string, active 
 	_ = fg
 }
 
+func drawBrick(screen *ebiten.Image, x, y float32) {
+	const pad = 3
+	// Base fill
+	vector.DrawFilledRect(screen, x+pad, y+pad, cellSize-2*pad, cellSize-2*pad,
+		color.RGBA{95, 70, 45, 255}, false)
+	// Upper brick face
+	const fpad = 5
+	half := float32(cellSize-2*fpad) / 2
+	vector.DrawFilledRect(screen, x+fpad, y+fpad, cellSize-2*fpad, half-1,
+		color.RGBA{120, 90, 58, 255}, false)
+	// Lower brick face
+	vector.DrawFilledRect(screen, x+fpad, y+fpad+half+1, cellSize-2*fpad, half-1,
+		color.RGBA{120, 90, 58, 255}, false)
+	// Horizontal mortar line
+	vector.DrawFilledRect(screen, x+pad, y+fpad+half-1, cellSize-2*pad, 2,
+		color.RGBA{55, 38, 22, 255}, false)
+	// Vertical mortar — offset on each row to look like staggered brickwork
+	mid := x + cellSize/2
+	vector.DrawFilledRect(screen, mid-1, y+fpad, 2, half-1,
+		color.RGBA{55, 38, 22, 255}, false)
+	vector.DrawFilledRect(screen, x+cellSize/4-1, y+fpad+half+1, 2, half-1,
+		color.RGBA{55, 38, 22, 255}, false)
+	vector.DrawFilledRect(screen, x+3*cellSize/4-1, y+fpad+half+1, 2, half-1,
+		color.RGBA{55, 38, 22, 255}, false)
+	// Top highlight
+	vector.DrawFilledRect(screen, x+fpad, y+fpad+1, cellSize-2*fpad, 2,
+		color.RGBA{150, 115, 78, 255}, false)
+}
+
 func drawBall(screen *ebiten.Image, x, y float32, c color.RGBA) {
 	cx := x + cellSize/2
 	cy := y + cellSize/2
@@ -169,4 +204,23 @@ func drawBallHighlight(screen *ebiten.Image, x, y float32, c color.RGBA) {
 	vector.DrawFilledCircle(screen, cx+2, cy+3, r, color.RGBA{0, 0, 0, 60}, true)
 	vector.DrawFilledCircle(screen, cx, cy, r, c, true)
 	vector.DrawFilledCircle(screen, cx-r/3, cy-r/3, r/4, color.RGBA{255, 255, 255, 110}, true)
+}
+
+// drawBallFlash renders a ball during the clearing flash: the original colour
+// shows through a semi-transparent white overlay, and a wide outer glow ring
+// makes the flash pop without losing colour identity.
+func drawBallFlash(screen *ebiten.Image, x, y float32, c color.RGBA) {
+	cx := x + cellSize/2
+	cy := y + cellSize/2
+	r := float32(cellSize/2 - ballPad)
+	// Outer glow ring (drawn first so ball sits on top).
+	vector.DrawFilledCircle(screen, cx, cy, r+6, color.RGBA{255, 255, 255, 110}, true)
+	// Drop shadow.
+	vector.DrawFilledCircle(screen, cx+2, cy+3, r, color.RGBA{0, 0, 0, 60}, true)
+	// Original colour base.
+	vector.DrawFilledCircle(screen, cx, cy, r, c, true)
+	// White overlay — partial so the colour bleeds through.
+	vector.DrawFilledCircle(screen, cx, cy, r, color.RGBA{255, 255, 255, 155}, true)
+	// Bright specular highlight.
+	vector.DrawFilledCircle(screen, cx-r/3, cy-r/3, r/3, color.RGBA{255, 255, 255, 210}, true)
 }
