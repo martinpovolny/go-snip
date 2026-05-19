@@ -179,6 +179,7 @@ function draw() {
   if (fallAnim) {
     for (const b of fallAnim.balls) suppress.add(`${b.toRow},${b.col}`);
   }
+  if (dragSel) suppress.add(`${dragSel.r},${dragSel.c}`);
 
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) {
@@ -193,7 +194,8 @@ function draw() {
 
       const isMatch = matchSet.has(`${r},${c}`);
       if (isMatch) {
-        if (flashOn) drawBall(x, y, null, true);
+        if (flashOn) drawBallFlash(x, y, clr);
+        else         drawBall(x, y, clr, false);
       } else {
         drawBall(x, y, clr, false);
       }
@@ -207,18 +209,52 @@ function draw() {
     const progress = swapAnim.phase === 'reverse' ? 1 - ease : ease;
     const axPx = swapAnim.colA * CELL, ayPx = swapAnim.rowA * CELL;
     const bxPx = swapAnim.colB * CELL, byPx = swapAnim.rowB * CELL;
-    drawBall(axPx + progress * (bxPx - axPx), ayPx + progress * (byPx - ayPx), swapAnim.colorA, false);
-    drawBall(bxPx + progress * (axPx - bxPx), byPx + progress * (ayPx - byPx), swapAnim.colorB, false);
+    if (swapAnim.colorA) drawBall(axPx + progress * (bxPx - axPx), ayPx + progress * (byPx - ayPx), swapAnim.colorA, false);
+    if (swapAnim.colorB) drawBall(bxPx + progress * (axPx - bxPx), byPx + progress * (ayPx - byPx), swapAnim.colorB, false);
   }
 
   if (fallAnim) {
     for (const b of fallAnim.balls) drawBall(b.col * CELL, b.cur * CELL, b.color, false);
   }
 
-  if (dragSel && role === 'player') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-    ctx.lineWidth   = 3;
-    ctx.strokeRect(dragSel.c * CELL + 3, dragSel.r * CELL + 3, CELL - 6, CELL - 6);
+  // Drag visual: ghost ring at origin, destination highlight, lifted ball at cursor
+  if (dragSel && dragCurrent && role === 'player') {
+    const clr = board[dragSel.r] && board[dragSel.r][dragSel.c];
+    if (clr) {
+      const ox  = dragSel.c * CELL + CELL / 2;
+      const oy  = dragSel.r * CELL + CELL / 2;
+      const ddx = dragCurrent.x - ox;
+      const ddy = dragCurrent.y - oy;
+      const adx = Math.abs(ddx), ady = Math.abs(ddy);
+
+      // Ghost ring where the ball was lifted from
+      ctx.beginPath();
+      ctx.arc(ox, oy, CELL / 2 - PAD, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Destination cell highlight once direction is clear
+      if (adx > CELL * 0.15 || ady > CELL * 0.15) {
+        let dr = 0, dc = 0;
+        if (adx >= ady) dc = ddx > 0 ? 1 : -1;
+        else            dr = ddy > 0 ? 1 : -1;
+        const tr = dragSel.r + dr, tc = dragSel.c + dc;
+        if (tr >= 0 && tr < H && tc >= 0 && tc < W) {
+          ctx.beginPath();
+          ctx.arc(tc * CELL + CELL / 2, tr * CELL + CELL / 2, CELL / 2 - PAD + 5, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+      }
+
+      // Lifted ball follows cursor, clamped so it reaches the adjacent cell's centre
+      const maxOff = CELL;
+      const ballX  = ox + Math.max(-maxOff, Math.min(maxOff, ddx)) - CELL / 2;
+      const ballY  = oy + Math.max(-maxOff, Math.min(maxOff, ddy)) - CELL / 2;
+      drawBallLifted(ballX, ballY, clr);
+    }
   }
 }
 
@@ -261,50 +297,119 @@ function drawBall(x, y, clr, white) {
   }
 }
 
-// ── interaction ───────────────────────────────────────────────────────────────
-
-let dragSel   = null;
-let dragStart = null;
-
-function cellAt(e) {
-  const rect  = canvas.getBoundingClientRect();
-  const scaleX = canvas.width  / rect.width;
-  const scaleY = canvas.height / rect.height;
-  return {
-    r: Math.floor((e.clientY - rect.top)  * scaleY / CELL),
-    c: Math.floor((e.clientX - rect.left) * scaleX / CELL),
-  };
+// Flash phase: original colour visible under a white overlay with outer glow ring.
+function drawBallFlash(x, y, clr) {
+  const cx = x + CELL / 2, cy = y + CELL / 2;
+  const r  = CELL / 2 - PAD;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.43)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + 2, cy + 3, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS[clr];
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.60)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx - r * .35, cy - r * .35, r / 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  ctx.fill();
 }
 
-// canMove checks server-side readiness only; client-side animations are cosmetic
-// and shouldn't block the user from queuing the next move.
+// Lifted ball drawn while dragging: larger shadow offset to imply elevation.
+function drawBallLifted(x, y, clr) {
+  const cx = x + CELL / 2, cy = y + CELL / 2;
+  const r  = CELL / 2 - PAD;
+  ctx.beginPath();
+  ctx.arc(cx + 4, cy + 7, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS[clr];
+  ctx.fill();
+  const grad = ctx.createRadialGradient(cx - r * .3, cy - r * .3, r * .1, cx, cy, r);
+  grad.addColorStop(0, 'rgba(255,255,255,.35)');
+  grad.addColorStop(1, 'rgba(0,0,0,.18)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+// ── interaction ───────────────────────────────────────────────────────────────
+
+let dragSel     = null;
+let dragStart   = null;
+let dragCurrent = null; // canvas-space cursor position while dragging
+let pendingMove = null; // {rowA,colA,rowB,colB} of the move just sent by drag
+
+function pointerToCanvas(clientX, clientY) {
+  const rect   = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
+
+function cellAt(clientX, clientY) {
+  const p = pointerToCanvas(clientX, clientY);
+  return { r: Math.floor(p.y / CELL), c: Math.floor(p.x / CELL) };
+}
+
+// canMove allows dragging whenever the server can accept a queued move.
+// 'gameover' is the only state where the server won't accept one.
+// Falls and clears are fine: hub.MoveIn queues the move until stateWaiting.
 function canMove() {
-  return role === 'player' && gameStatus === 'waiting';
+  return role === 'player' && gameStatus !== 'gameover';
 }
 
 canvas.addEventListener('mousedown', e => {
   if (!canMove()) return;
-  dragSel   = cellAt(e);
-  dragStart = { x: e.clientX, y: e.clientY };
+  dragSel     = cellAt(e.clientX, e.clientY);
+  dragStart   = { x: e.clientX, y: e.clientY };
+  dragCurrent = pointerToCanvas(e.clientX, e.clientY);
+  draw();
+});
+canvas.addEventListener('mousemove', e => {
+  if (!dragSel) return;
+  dragCurrent = pointerToCanvas(e.clientX, e.clientY);
   draw();
 });
 canvas.addEventListener('mouseup', e => {
   if (!dragSel || !dragStart) return;
   const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
   const sel = dragSel;
-  dragSel = null; dragStart = null;
+  dragSel = null; dragStart = null; dragCurrent = null;
   draw();
   if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
   const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  sendMove(sel.r, sel.c, dir);
+  dispatchMove(sel, dir);
 });
-canvas.addEventListener('mouseleave', () => { dragSel = null; dragStart = null; draw(); });
+canvas.addEventListener('mouseleave', () => {
+  dragSel = null; dragStart = null; dragCurrent = null; draw();
+});
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if (!canMove()) return;
   const t = e.touches[0];
-  dragSel = cellAt(t); dragStart = { x: t.clientX, y: t.clientY };
+  dragSel     = cellAt(t.clientX, t.clientY);
+  dragStart   = { x: t.clientX, y: t.clientY };
+  dragCurrent = pointerToCanvas(t.clientX, t.clientY);
+  draw();
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!dragSel) return;
+  const t = e.touches[0];
+  dragCurrent = pointerToCanvas(t.clientX, t.clientY);
   draw();
 }, { passive: false });
 canvas.addEventListener('touchend', e => {
@@ -313,16 +418,27 @@ canvas.addEventListener('touchend', e => {
   const t = e.changedTouches[0];
   const dx = t.clientX - dragStart.x, dy = t.clientY - dragStart.y;
   const sel = dragSel;
-  dragSel = null; dragStart = null;
+  dragSel = null; dragStart = null; dragCurrent = null;
   draw();
   if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
   const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  sendMove(sel.r, sel.c, dir);
+  dispatchMove(sel, dir);
 }, { passive: false });
+canvas.addEventListener('touchcancel', () => {
+  dragSel = null; dragStart = null; dragCurrent = null; draw();
+});
 
 function sendMove(r, c, dir) {
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: 'move', row: r, col: c, dir }));
+}
+
+// Record which move we are about to send so the swap_anim handler can skip
+// the forward animation (the drag gesture already showed it).
+function dispatchMove(sel, dir) {
+  const off = {right:[0,1], left:[0,-1], down:[1,0], up:[-1,0]}[dir];
+  if (off) pendingMove = { rowA: sel.r, colA: sel.c, rowB: sel.r+off[0], colB: sel.c+off[1] };
+  sendMove(sel.r, sel.c, dir);
 }
 
 function claimPlayer() {
@@ -414,12 +530,25 @@ function connect() {
 
     if (msg.type === 'swap_anim') {
       hideGameOver();
+      // Check if this confirms a move we just sent via drag.
+      const pm = pendingMove;
+      pendingMove = null;
+      const isOwnDrag = pm &&
+        pm.rowA === msg.rowA && pm.colA === msg.colA &&
+        pm.rowB === msg.rowB && pm.colB === msg.colB;
+
+      if (isOwnDrag && msg.valid) {
+        // Drag already showed the forward motion; board state will follow via state/clearing.
+        return;
+      }
       swapAnim = {
         rowA: msg.rowA, colA: msg.colA,
         rowB: msg.rowB, colB: msg.colB,
         colorA: msg.colorA, colorB: msg.colorB,
         valid: msg.valid,
-        phase: 'forward',
+        // Own invalid drag: skip the forward trip (drag showed it), jump to snap-back.
+        // Another player's move: play the full forward animation.
+        phase: isOwnDrag ? 'reverse' : 'forward',
         startTime: performance.now(),
         duration: SWAP_MS,
       };

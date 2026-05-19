@@ -67,6 +67,7 @@ type Game struct {
 	mouseDown     bool
 	dragStartCell Pos
 	dragStartPx   [2]float64
+	dragCurPx     [2]float64 // current cursor position while dragging
 	hoverCell     Pos
 	hoverValid    bool
 
@@ -281,8 +282,10 @@ func (g *Game) dropBall() {
 	g.startFalling(falls, groups)
 }
 
-// Update runs the game logic tick. Called by ebiten (GUI) or the headless ticker.
-func (g *Game) Update() error {
+// LogicTick advances the game state machine by one tick. It is called by a
+// fixed-rate time.Ticker goroutine in GUI mode and directly from the headless
+// ticker loop, keeping game speed independent of the display refresh rate.
+func (g *Game) LogicTick() {
 	// Mode changes from remote clients take effect immediately.
 	select {
 	case sm := <-g.hub.ModeIn:
@@ -291,14 +294,12 @@ func (g *Game) Update() error {
 			mode = modeAttack
 		}
 		g.Reset(mode)
-		return nil
+		return
 	default:
 	}
 
-	g.handleMouse()
-
 	if g.state == stateGameOver {
-		return nil
+		return
 	}
 
 	switch g.state {
@@ -309,7 +310,7 @@ func (g *Game) Update() error {
 			if g.dropTicks <= 0 {
 				g.dropTicks = attackDropInterval
 				g.dropBall()
-				return nil
+				return
 			}
 		}
 
@@ -375,6 +376,14 @@ func (g *Game) Update() error {
 			g._pendingGroups = nil
 		}
 	}
+}
+
+// Update is the headless entry point: called by the time.Ticker in main.go.
+// In GUI mode, EbitenGame.Update() overrides this and only handles input;
+// game logic runs in a separate goroutine via LogicTick.
+func (g *Game) Update() error {
+	g.handleMouse()
+	g.LogicTick()
 	return nil
 }
 

@@ -71,15 +71,19 @@ func (g *Game) handleMouse() {
 	if pressed && !g.mouseDown {
 		g.mouseDown = true
 		g.dragStartPx = [2]float64{px, py}
+		g.dragCurPx = [2]float64{px, py}
 		// Grid cell for drag origin (account for HUD offset).
 		gridY := py - hudH
 		g.dragStartCell = Pos{int(gridY) / cellSize, int(px) / cellSize}
 	}
+	if pressed {
+		g.dragCurPx = [2]float64{px, py}
+	}
 
-	// ── Hover highlight (grid area only) ────────────────────────────────────
+	// ── Hover highlight (grid area only, not while dragging) ─────────────────
 	gridY := py - hudH
 	hc := Pos{int(gridY) / cellSize, int(px) / cellSize}
-	if gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW && !g.grid.Bricks[hc.R][hc.C] {
+	if !pressed && gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW && !g.grid.Bricks[hc.R][hc.C] {
 		g.hoverCell = hc
 		g.hoverValid = true
 	} else {
