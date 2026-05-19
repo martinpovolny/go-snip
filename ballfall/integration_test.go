@@ -210,6 +210,19 @@ func toBoard(msg map[string]any) [][]int {
 	return board
 }
 
+func toBricks(msg map[string]any) [][]bool {
+	raw, _ := msg["bricks"].([]any)
+	bricks := make([][]bool, len(raw))
+	for r, rowAny := range raw {
+		rowSlice, _ := rowAny.([]any)
+		bricks[r] = make([]bool, len(rowSlice))
+		for c, v := range rowSlice {
+			bricks[r][c], _ = v.(bool)
+		}
+	}
+	return bricks
+}
+
 var allDirs = []string{"right", "left", "down", "up"}
 var dirDelta = map[string][2]int{"right": {0, 1}, "left": {0, -1}, "down": {1, 0}, "up": {-1, 0}}
 
@@ -250,8 +263,22 @@ func hasMatchOnBoard(b [][]int) bool {
 	return false
 }
 
-// findValidMove returns the first swap (in reading order) that creates a match.
-func findValidMove(board [][]int) (row, col int, dir string, ok bool) {
+// isServerRejected reports whether the server would silently ignore this move
+// (no swap_anim sent). Mirrors the guard in game.go initiateSwap.
+func isServerRejected(board [][]int, bricks [][]bool, r, c, nr, nc int, d string) bool {
+	if board[r][c] == 0 || bricks[r][c] || bricks[nr][nc] {
+		return true
+	}
+	// Moving up into empty space is also silently rejected.
+	if dirDelta[d][0] < 0 && board[nr][nc] == 0 {
+		return true
+	}
+	return false
+}
+
+// findValidMove returns the first swap (in reading order) that the server will
+// accept and that creates a match.
+func findValidMove(board [][]int, bricks [][]bool) (row, col int, dir string, ok bool) {
 	rows, cols := len(board), len(board[0])
 	cp := make([][]int, rows)
 	for i := range cp {
@@ -263,6 +290,9 @@ func findValidMove(board [][]int) (row, col int, dir string, ok bool) {
 			for c := 0; c < cols; c++ {
 				nr, nc := r+delta[0], c+delta[1]
 				if nr < 0 || nr >= rows || nc < 0 || nc >= cols {
+					continue
+				}
+				if isServerRejected(board, bricks, r, c, nr, nc, d) {
 					continue
 				}
 				for i := range board {
@@ -278,8 +308,9 @@ func findValidMove(board [][]int) (row, col int, dir string, ok bool) {
 	return 0, 0, "", false
 }
 
-// findInvalidMove returns a swap that does NOT create a match.
-func findInvalidMove(board [][]int) (row, col int, dir string, ok bool) {
+// findInvalidMove returns a swap that the server will accept but that does NOT
+// create a match (so the server will reverse it with valid=false).
+func findInvalidMove(board [][]int, bricks [][]bool) (row, col int, dir string, ok bool) {
 	rows, cols := len(board), len(board[0])
 	cp := make([][]int, rows)
 	for i := range cp {
@@ -291,6 +322,9 @@ func findInvalidMove(board [][]int) (row, col int, dir string, ok bool) {
 			for c := 0; c < cols; c++ {
 				nr, nc := r+delta[0], c+delta[1]
 				if nr < 0 || nr >= rows || nc < 0 || nc >= cols {
+					continue
+				}
+				if isServerRejected(board, bricks, r, c, nr, nc, d) {
 					continue
 				}
 				for i := range board {
@@ -387,8 +421,9 @@ func TestInvalidMove(t *testing.T) {
 	c.becomePlayer()
 	state := c.readUntil("state")
 	board := toBoard(state)
+	bricks := toBricks(state)
 
-	row, col, dir, ok := findInvalidMove(board)
+	row, col, dir, ok := findInvalidMove(board, bricks)
 	if !ok {
 		t.Skip("could not find an invalid move on this board")
 	}
@@ -423,9 +458,10 @@ func TestValidMove(t *testing.T) {
 	c.becomePlayer()
 	state := c.readUntil("state")
 	board := toBoard(state)
+	bricks := toBricks(state)
 	scoreBefore := int(state["score"].(float64))
 
-	row, col, dir, ok := findValidMove(board)
+	row, col, dir, ok := findValidMove(board, bricks)
 	if !ok {
 		t.Skip("no valid match-creating move found on initial board")
 	}
@@ -499,8 +535,9 @@ func TestValidMoveUnix(t *testing.T) {
 	c.becomePlayer()
 	state := c.readUntil("state")
 	board := toBoard(state)
+	bricks := toBricks(state)
 
-	row, col, dir, ok := findValidMove(board)
+	row, col, dir, ok := findValidMove(board, bricks)
 	if !ok {
 		t.Skip("no valid move on this board")
 	}
@@ -526,17 +563,19 @@ func TestCascade(t *testing.T) {
 		// Get current board from latest state.
 		c.sendMove(0, 0, "right") // dummy to force state refresh; may be invalid
 		var lastBoard [][]int
+		var lastBricks [][]bool
 		for i := 0; i < 6; i++ {
 			msg := c.readMsg()
 			if msg["type"] == "state" && msg["status"] == "waiting" {
 				lastBoard = toBoard(msg)
+				lastBricks = toBricks(msg)
 				break
 			}
 		}
 		if lastBoard == nil {
 			continue
 		}
-		row, col, dir, ok := findValidMove(lastBoard)
+		row, col, dir, ok := findValidMove(lastBoard, lastBricks)
 		if !ok {
 			continue
 		}
@@ -569,9 +608,10 @@ func TestFallAnimBallData(t *testing.T) {
 			current = c.readUntilStatus("waiting")
 		}
 		board := toBoard(current)
+		bricks := toBricks(current)
 		current = nil
 
-		row, col, dir, ok := findValidMove(board)
+		row, col, dir, ok := findValidMove(board, bricks)
 		if !ok {
 			// No match-creating move available; send any move to advance state.
 			c.sendMove(0, 0, "right")
