@@ -134,21 +134,21 @@ Two small toggle buttons in the top HUD margin, always visible. The active mode 
 │  │  draw.go           │          │  │  clients map         │ │   │
 │  │  mouse_gui.go      │          │  │  player *Client      │ │   │
 │  └────────┬───────────┘          │  │  lastState []byte    │ │   │
-│           │ handleMouse()        │  │  MoveIn chan          │ │   │
-│           ▼                      │  │  ModeIn chan          │ │   │
+│           │ handleMouse()        │  │  MoveIn chan         │ │   │
+│           ▼                      │  │  ModeIn chan         │ │   │
 │  ┌────────────────────┐          │  └──────────────────────┘ │   │
 │  │  Game / Grid       │─Broadcast│                           │   │
-│  │  game.go / grid.go │─────────▶│  ┌──────────────────┐    │   │
-│  │  LogicTick() 60 Hz │◀─MoveIn──│  │  server_tcp.go   │    │   │
+│  │  game.go / grid.go │─────────▶│  ┌──────────────────┐     │   │
+│  │  LogicTick() 60 Hz │◀─MoveIn──│  │  server_tcp.go   │     │   │
 │  └────────────────────┘◀─ModeIn──│  │  TCP  :7777      │◀──────── cmd/connect3
-│                                  │  │  Unix ./ballfall  │    │     (test player)
-│                                  │  │       .sock       │    │
-│                                  │  └──────────────────┘    │
-│                                  │  ┌──────────────────┐    │
-│                                  │  │  server_ws.go    │    │
+│                                  │  │  Unix ./ballfall │     │    (test player)
+│                                  │  │       .sock      │     │   │
+│                                  │  └──────────────────┘     │   │
+│                                  │  ┌──────────────────┐     │   │
+│                                  │  │  server_ws.go    │     │   │
 │                                  │  │  WS   /ws        │◀──────── browser
-│                                  │  │  HTTP /          │    │     (web/index.html)
-│                                  │  └──────────────────┘    │
+│                                  │  │  HTTP /          │     │    (web/index.html)
+│                                  │  └──────────────────┘     │   │
 │                                  └───────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────┘
 
