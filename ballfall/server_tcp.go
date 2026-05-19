@@ -71,32 +71,11 @@ func handleRawConn(conn net.Conn, h *Hub) {
 		}
 	}()
 
-	// Reader: parse incoming JSON lines and dispatch moves/claims.
+	// Reader: parse incoming JSON lines and dispatch.
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 	for scanner.Scan() {
-		line := scanner.Bytes()
-		var base InMsg
-		if err := json.Unmarshal(line, &base); err != nil {
-			continue
-		}
-		switch base.Type {
-		case "move":
-			var m MoveMsg
-			if err := json.Unmarshal(line, &m); err == nil {
-				h.DispatchMove(c, m)
-			}
-		case "claim":
-			if demoted := h.ClaimPlayer(c); demoted != nil {
-				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
-			}
-			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
-		case "set_mode":
-			var sm SetModeMsg
-			if err := json.Unmarshal(line, &sm); err == nil {
-				h.DispatchMode(c, sm)
-			}
-		}
+		h.HandleClientMsg(c, scanner.Bytes())
 	}
 	// Unregister closes c.send, which unblocks the writer goroutine.
 }

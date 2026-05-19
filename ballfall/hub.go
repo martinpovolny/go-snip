@@ -135,6 +135,33 @@ func (h *Hub) SendTo(c *Client, msg any) {
 	}
 }
 
+// HandleClientMsg decodes one incoming JSON message and dispatches it.
+// Called by both the TCP and WebSocket handlers so the routing logic lives
+// in exactly one place.
+func (h *Hub) HandleClientMsg(c *Client, msg []byte) {
+	var base InMsg
+	if err := json.Unmarshal(msg, &base); err != nil {
+		return
+	}
+	switch base.Type {
+	case "move":
+		var m MoveMsg
+		if err := json.Unmarshal(msg, &m); err == nil {
+			h.DispatchMove(c, m)
+		}
+	case "claim":
+		if demoted := h.ClaimPlayer(c); demoted != nil {
+			h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
+		}
+		h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
+	case "set_mode":
+		var sm SetModeMsg
+		if err := json.Unmarshal(msg, &sm); err == nil {
+			h.DispatchMode(c, sm)
+		}
+	}
+}
+
 // ClaimPlayer makes c the player unconditionally, demoting the current player
 // (if any) to observer. Returns the demoted client so the caller can notify it.
 func (h *Hub) ClaimPlayer(c *Client) (demoted *Client) {

@@ -59,27 +59,7 @@ func handleWS(w http.ResponseWriter, r *http.Request, h *Hub) {
 		if err != nil {
 			break
 		}
-		var base InMsg
-		if err := json.Unmarshal(msg, &base); err != nil {
-			continue
-		}
-		switch base.Type {
-		case "move":
-			var m MoveMsg
-			if err := json.Unmarshal(msg, &m); err == nil {
-				h.DispatchMove(c, m)
-			}
-		case "claim":
-			if demoted := h.ClaimPlayer(c); demoted != nil {
-				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
-			}
-			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
-		case "set_mode":
-			var sm SetModeMsg
-			if err := json.Unmarshal(msg, &sm); err == nil {
-				h.DispatchMode(c, sm)
-			}
-		}
+		h.HandleClientMsg(c, msg)
 	}
 	<-done
 }
