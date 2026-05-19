@@ -42,7 +42,11 @@ var palette = [5]color.RGBA{
 }
 
 // EbitenGame wraps Game and implements the full ebiten.Game interface.
-type EbitenGame struct{ *Game }
+// ms holds GUI-only input state that has no place in the game logic.
+type EbitenGame struct {
+	*Game
+	ms mouseState
+}
 
 func (e *EbitenGame) Draw(screen *ebiten.Image) {
 	g := e.Game
@@ -81,8 +85,8 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 	}
 
 	// Dragged ball: suppress from grid and draw lifted at cursor instead.
-	isDragging := g.mouseDown && g.dragStartPx[1] >= hudH && state != stateGameOver
-	dragCell := g.dragStartCell
+	isDragging := e.ms.mouseDown && e.ms.dragStartPx[1] >= hudH && state != stateGameOver
+	dragCell := e.ms.dragStartCell
 
 	for r := 0; r < GridH; r++ {
 		for c := 0; c < GridW; c++ {
@@ -117,7 +121,7 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 				} else {
 					drawBall(screen, x, y, palette[clr])
 				}
-			} else if g.hoverValid && g.hoverCell == p && state == stateWaiting {
+			} else if e.ms.hoverValid && e.ms.hoverCell == p && state == stateWaiting {
 				drawBallHighlight(screen, x, y, palette[clr])
 			} else {
 				drawBall(screen, x, y, palette[clr])
@@ -147,8 +151,8 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 		if clr != ColorNone {
 			ox := float64(dragCell.C)*cellSize + cellSize/2
 			oy := float64(hudH+dragCell.R*cellSize) + cellSize/2
-			ddx := g.dragCurPx[0] - ox
-			ddy := g.dragCurPx[1] - oy
+			ddx := e.ms.dragCurPx[0] - ox
+			ddy := e.ms.dragCurPx[1] - oy
 			adx, ady := abs64(ddx), abs64(ddy)
 
 			// Destination cell highlight once direction is clear.
@@ -206,14 +210,6 @@ func (e *EbitenGame) Draw(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", score), cx-24, cy-14)
 		ebitenutil.DebugPrintAt(screen, "Click or Space to play again", cx-84, cy+4)
 	}
-}
-
-// Update handles only input on the ebiten goroutine. Game logic ticks via the
-// separate time.Ticker goroutine started in runGUI, so the game runs at a
-// consistent 60 Hz regardless of window visibility or display refresh rate.
-func (e *EbitenGame) Update() error {
-	e.handleMouse()
-	return nil
 }
 
 func (e *EbitenGame) Layout(_, _ int) (int, int) { return winW, winH }

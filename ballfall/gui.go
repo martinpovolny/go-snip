@@ -26,7 +26,7 @@ func runGUI(game *Game) {
 		}
 	}()
 
-	if err := ebiten.RunGame(&EbitenGame{game}); err != nil {
+	if err := ebiten.RunGame(&EbitenGame{Game: game}); err != nil {
 		log.Fatal(err)
 	}
 }

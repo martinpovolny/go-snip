@@ -4,22 +4,49 @@ package main
 
 import "github.com/hajimehoshi/ebiten/v2"
 
-func (g *Game) handleMouse() {
+// mouseState holds all GUI-side input state. It lives on EbitenGame, not on
+// Game, so the game logic struct stays free of display concerns.
+type mouseState struct {
+	mouseDown     bool
+	dragStartCell Pos
+	dragStartPx   [2]float64
+	dragCurPx     [2]float64
+	hoverCell     Pos
+	hoverValid    bool
+}
+
+// Update handles input on the ebiten goroutine. Game logic ticks independently
+// via the time.Ticker goroutine in gui.go.
+func (e *EbitenGame) Update() error {
+	e.handleMouse()
+	return nil
+}
+
+func (e *EbitenGame) handleMouse() {
+	g := e.Game
+	ms := &e.ms
+
 	mx, my := ebiten.CursorPosition()
 	px, py := float64(mx), float64(my)
 
 	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
+	// If game just transitioned to game-over while we were dragging, discard
+	// the held drag so the next release doesn't accidentally restart.
+	if g.state == stateGameOver && ms.mouseDown {
+		ms.mouseDown = false
+	}
+
 	// ── Click released: check HUD buttons or game-over overlay ──────────────
-	if !pressed && g.mouseDown {
-		g.mouseDown = false
-		dx := px - g.dragStartPx[0]
-		dy := py - g.dragStartPx[1]
+	if !pressed && ms.mouseDown {
+		ms.mouseDown = false
+		dx := px - ms.dragStartPx[0]
+		dy := py - ms.dragStartPx[1]
 
 		// HUD button click (small movement = click, not drag).
-		if g.dragStartPx[1] < hudH && abs64(dx) < 8 && abs64(dy) < 8 {
+		if ms.dragStartPx[1] < hudH && abs64(dx) < 8 && abs64(dy) < 8 {
 			demoX, attackX, demoW, attackW := modeButtonBounds()
-			fx := float32(g.dragStartPx[0])
+			fx := float32(ms.dragStartPx[0])
 			if fx >= demoX && fx < demoX+demoW {
 				g.Reset(modeDemo)
 				return
@@ -32,7 +59,7 @@ func (g *Game) handleMouse() {
 		}
 
 		// Game-over overlay click → restart Ball Attack.
-		if g.state == stateGameOver && g.dragStartPx[1] >= hudH {
+		if g.state == stateGameOver && ms.dragStartPx[1] >= hudH {
 			g.Reset(modeAttack)
 			return
 		}
@@ -61,33 +88,33 @@ func (g *Game) handleMouse() {
 			}
 		}
 		select {
-		case g.hub.MoveIn <- MoveMsg{Row: g.dragStartCell.R, Col: g.dragStartCell.C, Dir: dir}:
+		case g.hub.MoveIn <- MoveMsg{Row: ms.dragStartCell.R, Col: ms.dragStartCell.C, Dir: dir}:
 		default:
 		}
 		return
 	}
 
 	// ── Press: start tracking ────────────────────────────────────────────────
-	if pressed && !g.mouseDown {
-		g.mouseDown = true
-		g.dragStartPx = [2]float64{px, py}
-		g.dragCurPx = [2]float64{px, py}
+	if pressed && !ms.mouseDown {
+		ms.mouseDown = true
+		ms.dragStartPx = [2]float64{px, py}
+		ms.dragCurPx = [2]float64{px, py}
 		// Grid cell for drag origin (account for HUD offset).
 		gridY := py - hudH
-		g.dragStartCell = Pos{int(gridY) / cellSize, int(px) / cellSize}
+		ms.dragStartCell = Pos{int(gridY) / cellSize, int(px) / cellSize}
 	}
 	if pressed {
-		g.dragCurPx = [2]float64{px, py}
+		ms.dragCurPx = [2]float64{px, py}
 	}
 
 	// ── Hover highlight (grid area only, not while dragging) ─────────────────
 	gridY := py - hudH
 	hc := Pos{int(gridY) / cellSize, int(px) / cellSize}
 	if !pressed && gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW && !g.grid.Bricks[hc.R][hc.C] {
-		g.hoverCell = hc
-		g.hoverValid = true
+		ms.hoverCell = hc
+		ms.hoverValid = true
 	} else {
-		g.hoverValid = false
+		ms.hoverValid = false
 	}
 
 	// ── Space bar: restart Ball Attack from game-over ────────────────────────

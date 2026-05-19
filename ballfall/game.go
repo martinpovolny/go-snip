@@ -39,8 +39,8 @@ type activeFall struct {
 	vel float64
 }
 
-// Game is the central game object. Update is always present; Draw/Layout live
-// in draw.go under the !nogui build tag.
+// Game is the central game object holding all logic state. GUI input state
+// (mouse, hover) lives in EbitenGame.ms in mouse_gui.go instead.
 type Game struct {
 	mu      sync.Mutex
 	grid    *Grid
@@ -63,13 +63,6 @@ type Game struct {
 	_pendingGroups [][]Pos
 
 	dropTicks int // Ball Attack: ticks until next ball drop
-
-	mouseDown     bool
-	dragStartCell Pos
-	dragStartPx   [2]float64
-	dragCurPx     [2]float64 // current cursor position while dragging
-	hoverCell     Pos
-	hoverValid    bool
 
 	hub *Hub
 }
@@ -105,8 +98,6 @@ func (g *Game) Reset(mode gameMode) {
 	g._pendingGroups = nil
 	g.swapProgress = 0
 	g.dropTicks = attackDropInterval
-	g.mouseDown = false
-	g.hoverValid = false
 
 	switch mode {
 	case modeAttack:
@@ -232,7 +223,6 @@ func (g *Game) dropBall() {
 	if landRow < 0 {
 		// Column is full — game over.
 		g.state = stateGameOver
-		g.mouseDown = false // discard any held click so it can't immediately dismiss the overlay
 		score := g.score
 		g.mu.Unlock()
 		g.hub.Broadcast(GameOverMsg{Type: "game_over", Score: score, Mode: "attack"})
@@ -379,10 +369,9 @@ func (g *Game) LogicTick() {
 }
 
 // Update is the headless entry point: called by the time.Ticker in main.go.
-// In GUI mode, EbitenGame.Update() overrides this and only handles input;
-// game logic runs in a separate goroutine via LogicTick.
+// In GUI mode, EbitenGame.Update() in mouse_gui.go handles input; game logic
+// runs in a separate goroutine via LogicTick.
 func (g *Game) Update() error {
-	g.handleMouse()
 	g.LogicTick()
 	return nil
 }
@@ -432,8 +421,6 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 		Valid:  g.swapValid,
 	})
 }
-
-// handleMouse is a no-op in the nogui build (stub in mouse_nogui.go).
 
 func abs64(x float64) float64 {
 	if x < 0 {
