@@ -26,9 +26,7 @@ func main() {
 
 	go StartHTTP(*httpAddr, hub)
 
-	game.mu.Lock()
-	hub.Broadcast(game.snapshot("waiting"))
-	game.mu.Unlock()
+	game.BroadcastInitial()
 
 	if *headless {
 		log.Printf("headless mode — TCP %s  HTTP %s  Unix %s", *tcpAddr, *httpAddr, *unixPath)

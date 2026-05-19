@@ -1,12 +1,22 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
 )
+
+//go:embed web
+var embeddedWeb embed.FS
+
+func webFS() fs.FS {
+	sub, _ := fs.Sub(embeddedWeb, "web")
+	return sub
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },

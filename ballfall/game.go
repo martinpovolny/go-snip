@@ -76,6 +76,15 @@ func NewGame(h *Hub) *Game {
 	}
 }
 
+// BroadcastInitial sends the current board to all connected clients.
+// Called once at startup after all servers are listening.
+func (g *Game) BroadcastInitial() {
+	g.mu.Lock()
+	msg := g.snapshot("waiting")
+	g.mu.Unlock()
+	g.hub.Broadcast(msg)
+}
+
 func (g *Game) modeString() string {
 	if g.mode == modeAttack {
 		return "attack"
