@@ -31,6 +31,7 @@ type gameMode int
 const (
 	modeDemo   gameMode = iota
 	modeAttack
+	modeVersus
 )
 
 type activeFall struct {
@@ -62,9 +63,15 @@ type Game struct {
 	falling        []activeFall
 	_pendingGroups [][]Pos
 
-	dropTicks int // Ball Attack: ticks until next ball drop
+	dropTicks int // Ball Attack / Versus: ticks until next periodic ball drop
 
-	hub *Hub
+	hub    *Hub
+	moveIn chan MoveMsg // this game's move input channel (hub.MoveIn or hub.MoveIn2)
+
+	// Versus mode fields.
+	playerID     int   // 1 or 2 (0 = solo)
+	opponent     *Game // nil in solo modes
+	penaltyQueue int   // penalty balls waiting to drop; guarded by mu
 }
 
 func NewGame(h *Hub) *Game {
@@ -73,7 +80,25 @@ func NewGame(h *Hub) *Game {
 		mode:      modeDemo,
 		dropTicks: attackDropInterval,
 		hub:       h,
+		moveIn:    h.MoveIn,
 	}
+}
+
+// broadcast sends msg to all connected clients, storing it in the per-player
+// last-state cache when in versus mode.
+func (g *Game) broadcast(msg any) {
+	g.hub.BroadcastTagged(msg, g.playerID)
+}
+
+// AddPenalty queues n penalty balls to drop on this game's next waiting tick.
+// Safe to call from another goroutine (opponent's game loop).
+func (g *Game) AddPenalty(n int) {
+	if n <= 0 {
+		return
+	}
+	g.mu.Lock()
+	g.penaltyQueue += n
+	g.mu.Unlock()
 }
 
 // BroadcastInitial sends the current board to all connected clients.
@@ -86,14 +111,19 @@ func (g *Game) BroadcastInitial() {
 }
 
 func (g *Game) modeString() string {
-	if g.mode == modeAttack {
+	switch g.mode {
+	case modeAttack:
 		return "attack"
+	case modeVersus:
+		return "versus"
+	default:
+		return "demo"
 	}
-	return "demo"
 }
 
 // Reset reinitializes the game for the given mode, broadcasting a fresh state.
 // Called directly by the GUI mouse handler or via the ModeIn channel.
+// Do not call directly in versus mode; use VersusGame.Reset() instead.
 func (g *Game) Reset(mode gameMode) {
 	g.mu.Lock()
 	g.mode = mode
@@ -107,9 +137,10 @@ func (g *Game) Reset(mode gameMode) {
 	g._pendingGroups = nil
 	g.swapProgress = 0
 	g.dropTicks = attackDropInterval
+	g.penaltyQueue = 0
 
 	switch mode {
-	case modeAttack:
+	case modeAttack, modeVersus:
 		g.grid = NewAttackGrid()
 	default:
 		g.grid = NewGrid()
@@ -118,7 +149,7 @@ func (g *Game) Reset(mode gameMode) {
 	g.mu.Unlock()
 
 	g.hub.SetMode(g.modeString())
-	g.hub.Broadcast(msg)
+	g.broadcast(msg)
 }
 
 func (g *Game) snapshot(status string) StateMsg {
@@ -132,6 +163,7 @@ func (g *Game) snapshot(status string) StateMsg {
 		Status:  status,
 		Cascade: g.cascade,
 		Mode:    g.modeString(),
+		Player:  g.playerID,
 	}
 	if g.current != nil {
 		msg.Matches = MatchesAsArray(g.current)
@@ -147,7 +179,7 @@ func (g *Game) settle() {
 	g.mu.Lock()
 	msg := g.snapshot("waiting")
 	g.mu.Unlock()
-	g.hub.Broadcast(msg)
+	g.broadcast(msg)
 }
 
 func (g *Game) startGroup(group []Pos) {
@@ -158,22 +190,28 @@ func (g *Game) startGroup(group []Pos) {
 	g.mu.Lock()
 	msg := g.snapshot("clearing")
 	g.mu.Unlock()
-	g.hub.Broadcast(msg)
+	g.broadcast(msg)
 }
 
 func (g *Game) checkCascade() {
 	g.mu.Lock()
+	cleared := len(g.current)
 	g.grid.ClearMatches(g.current)
-	g.score += len(g.current)
+	g.score += cleared
 	g.grid.DestroyAdjacentBricks(g.current)
 	var falls []FallingBall
-	if g.mode == modeAttack {
+	if g.mode == modeAttack || g.mode == modeVersus {
 		falls = g.grid.GravityOnly()
 	} else {
 		falls = g.grid.GravityAndFill()
 	}
 	groups := g.grid.FindMatchGroups()
 	g.mu.Unlock()
+
+	// Send penalty balls to the opponent: one ball per 3 cleared.
+	if g.opponent != nil && cleared >= 3 {
+		g.opponent.AddPenalty(cleared / 3)
+	}
 
 	if len(falls) > 0 {
 		g.startFalling(falls, groups)
@@ -204,21 +242,31 @@ func (g *Game) startFalling(falls []FallingBall, nextGroups [][]Pos) {
 	score := g.score
 	cascade := g.cascade
 	g.mu.Unlock()
-	g.hub.Broadcast(FallAnimMsg{
+	g.broadcast(FallAnimMsg{
 		Type:    "fall_anim",
 		Board:   board,
 		Bricks:  bricks,
 		Balls:   balls,
 		Score:   score,
 		Cascade: cascade,
+		Player:  g.playerID,
 	})
 }
 
-// dropBall executes one Ball Attack drop: places a random ball in a random
-// column, applies the slide rule if isolated, then runs match detection.
+// dropBall is the periodic drop: resets the drop timer then drops at a random column.
 func (g *Game) dropBall() {
-	col := rand.Intn(GridW)
+	g.dropTicks = attackDropInterval
+	g.dropBallAt(rand.Intn(GridW))
+}
 
+// dropPenaltyBall drops a penalty ball (sent by the opponent) without resetting the drop timer.
+func (g *Game) dropPenaltyBall() {
+	g.dropBallAt(rand.Intn(GridW))
+}
+
+// dropBallAt places a ball in the given column, applies the slide rule if isolated,
+// then runs match detection. Used by both periodic and penalty drops.
+func (g *Game) dropBallAt(col int) {
 	g.mu.Lock()
 	// Find landing row: first occupied row from top minus 1.
 	landRow := GridH - 1
@@ -233,8 +281,23 @@ func (g *Game) dropBall() {
 		// Column is full — game over.
 		g.state = stateGameOver
 		score := g.score
+		if g.opponent != nil {
+			g.opponent.mu.Lock()
+			g.opponent.state = stateGameOver
+			g.opponent.mu.Unlock()
+		}
 		g.mu.Unlock()
-		g.hub.Broadcast(GameOverMsg{Type: "game_over", Score: score, Mode: "attack"})
+		if g.opponent != nil {
+			g.broadcast(GameOverMsg{
+				Type:   "game_over",
+				Score:  score,
+				Mode:   "versus",
+				Player: g.playerID,
+				Winner: g.opponent.playerID,
+			})
+		} else {
+			g.broadcast(GameOverMsg{Type: "game_over", Score: score, Mode: "attack"})
+		}
 		return
 	}
 
@@ -285,16 +348,18 @@ func (g *Game) dropBall() {
 // fixed-rate time.Ticker goroutine in GUI mode and directly from the headless
 // ticker loop, keeping game speed independent of the display refresh rate.
 func (g *Game) LogicTick() {
-	// Mode changes from remote clients take effect immediately.
-	select {
-	case sm := <-g.hub.ModeIn:
-		mode := modeDemo
-		if sm.Mode == "attack" {
-			mode = modeAttack
+	// Mode changes from remote clients take effect immediately (not in versus mode).
+	if g.mode != modeVersus {
+		select {
+		case sm := <-g.hub.ModeIn:
+			mode := modeDemo
+			if sm.Mode == "attack" {
+				mode = modeAttack
+			}
+			g.Reset(mode)
+			return
+		default:
 		}
-		g.Reset(mode)
-		return
-	default:
 	}
 
 	if g.state == stateGameOver {
@@ -303,18 +368,31 @@ func (g *Game) LogicTick() {
 
 	switch g.state {
 	case stateWaiting:
-		// Ball Attack: advance drop timer only while waiting.
-		if g.mode == modeAttack {
+		// Drain one penalty ball before the regular periodic drop.
+		if g.mode == modeVersus {
+			g.mu.Lock()
+			pq := g.penaltyQueue
+			if pq > 0 {
+				g.penaltyQueue--
+			}
+			g.mu.Unlock()
+			if pq > 0 {
+				g.dropPenaltyBall()
+				return
+			}
+		}
+
+		// Ball Attack / Versus: advance drop timer only while waiting.
+		if g.mode == modeAttack || g.mode == modeVersus {
 			g.dropTicks--
 			if g.dropTicks <= 0 {
-				g.dropTicks = attackDropInterval
 				g.dropBall()
 				return
 			}
 		}
 
 		select {
-		case m := <-g.hub.MoveIn:
+		case m := <-g.moveIn:
 			g.initiateSwap(Pos{m.Row, m.Col}, m.Dir)
 		default:
 		}
@@ -422,12 +500,13 @@ func (g *Game) initiateSwap(from Pos, dir string) {
 	} else {
 		g.state = stateSwapBack
 	}
-	g.hub.Broadcast(SwapAnimMsg{
+	g.broadcast(SwapAnimMsg{
 		Type:   "swap_anim",
 		RowA:   from.R, ColA: from.C,
 		RowB:   to.R, ColB: to.C,
 		ColorA: colorA, ColorB: colorB,
 		Valid:  g.swapValid,
+		Player: g.playerID,
 	})
 }
 

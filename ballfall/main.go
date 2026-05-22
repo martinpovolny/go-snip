@@ -13,10 +13,10 @@ func main() {
 	tcpAddr  := flag.String("tcp", ":7777", "TCP game socket listen address")
 	unixPath := flag.String("unix", "./ballfall.sock", "Unix domain socket path")
 	headless := flag.Bool("headless", false, "run without a display window (server mode)")
+	modeFlag := flag.String("mode", "demo", "starting game mode: demo | attack | versus")
 	flag.Parse()
 
-	hub  := NewHub()
-	game := NewGame(hub)
+	hub := NewHub()
 
 	go StartTCP(*tcpAddr, hub)
 
@@ -26,7 +26,28 @@ func main() {
 
 	go StartHTTP(*httpAddr, hub)
 
-	game.BroadcastInitial()
+	if *modeFlag == "versus" {
+		vs := NewVersusGame(hub)
+		vs.BroadcastInitial()
+		if *headless {
+			log.Printf("headless versus — TCP %s  HTTP %s  Unix %s", *tcpAddr, *httpAddr, *unixPath)
+			t := time.NewTicker(time.Second / 60)
+			defer t.Stop()
+			for range t.C {
+				vs.LogicTick()
+			}
+			return
+		}
+		runVersusGUI(vs)
+		return
+	}
+
+	game := NewGame(hub)
+	if *modeFlag == "attack" {
+		game.Reset(modeAttack)
+	} else {
+		game.BroadcastInitial()
+	}
 
 	if *headless {
 		log.Printf("headless mode — TCP %s  HTTP %s  Unix %s", *tcpAddr, *httpAddr, *unixPath)

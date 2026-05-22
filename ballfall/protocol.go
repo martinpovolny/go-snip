@@ -28,23 +28,27 @@ type StateMsg struct {
 	Status  string   `json:"status"`            // "waiting" | "clearing" | "invalid" | "gameover"
 	Matches [][2]int `json:"matches,omitempty"` // cells being cleared
 	Cascade int      `json:"cascade"`
-	Mode    string   `json:"mode"`              // "demo" | "attack"
+	Mode    string   `json:"mode"`              // "demo" | "attack" | "versus"
+	Player  int      `json:"player,omitempty"`  // 1 or 2 in versus mode; 0 (omitted) in solo
 }
 
 // WelcomeMsg is sent once when a client connects.
 type WelcomeMsg struct {
-	Type   string `json:"type"`   // "welcome"
-	Role   string `json:"role"`   // "player" | "observer"
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
-	Mode   string `json:"mode"`   // "demo" | "attack"
+	Type     string `json:"type"`               // "welcome"
+	Role     string `json:"role"`               // "player" | "observer"
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Mode     string `json:"mode"`               // "demo" | "attack" | "versus"
+	PlayerID int    `json:"player_id,omitempty"` // 1 or 2 in versus; 0 (omitted) otherwise
 }
 
-// GameOverMsg is broadcast in Ball Attack mode when the game ends.
+// GameOverMsg is broadcast when the game ends.
 type GameOverMsg struct {
-	Type  string `json:"type"`  // "game_over"
-	Score int    `json:"score"`
-	Mode  string `json:"mode"`  // "attack"
+	Type   string `json:"type"`             // "game_over"
+	Score  int    `json:"score"`
+	Mode   string `json:"mode"`             // "attack" | "versus"
+	Player int    `json:"player,omitempty"` // loser in versus mode
+	Winner int    `json:"winner,omitempty"` // winner in versus mode
 }
 
 // SwapAnimMsg is broadcast when a swap animation begins.
@@ -56,7 +60,8 @@ type SwapAnimMsg struct {
 	ColB   int    `json:"colB"`
 	ColorA int    `json:"colorA"`
 	ColorB int    `json:"colorB"`
-	Valid  bool   `json:"valid"` // false → will revert
+	Valid  bool   `json:"valid"`            // false → will revert
+	Player int    `json:"player,omitempty"` // 1 or 2 in versus; 0 (omitted) in solo
 }
 
 // FallBallData describes one ball's fall path.
@@ -76,6 +81,7 @@ type FallAnimMsg struct {
 	Balls   []FallBallData `json:"balls"`
 	Score   int            `json:"score"`
 	Cascade int            `json:"cascade"`
+	Player  int            `json:"player,omitempty"` // 1 or 2 in versus; 0 (omitted) in solo
 }
 
 // RoleMsg is sent to a specific client when its role changes.

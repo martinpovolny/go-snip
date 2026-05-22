@@ -18,18 +18,29 @@ type mouseState struct {
 // Update handles input on the ebiten goroutine. Game logic ticks independently
 // via the time.Ticker goroutine in gui.go.
 func (e *EbitenGame) Update() error {
-	e.handleMouse()
+	handleBoardMouse(e.Game, &e.ms, 0, float64(winW))
 	return nil
 }
 
-func (e *EbitenGame) handleMouse() {
-	g := e.Game
-	ms := &e.ms
-
+// handleBoardMouse processes mouse input for one board.
+//   - g: the game whose move channel receives drag-to-swap moves
+//   - ms: per-board mouse state
+//   - boardX: left pixel edge of this board (0 for P1, winW+gap for P2)
+//   - maxX: right pixel edge of this board
+func handleBoardMouse(g *Game, ms *mouseState, boardX, maxX float64) {
 	mx, my := ebiten.CursorPosition()
 	px, py := float64(mx), float64(my)
 
 	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	// Ignore events outside this board's column.
+	if px < boardX || px >= maxX {
+		if ms.mouseDown && !pressed {
+			ms.mouseDown = false
+		}
+		ms.hoverValid = false
+		return
+	}
 
 	// If game just transitioned to game-over while we were dragging, discard
 	// the held drag so the next release doesn't accidentally restart.
@@ -43,8 +54,8 @@ func (e *EbitenGame) handleMouse() {
 		dx := px - ms.dragStartPx[0]
 		dy := py - ms.dragStartPx[1]
 
-		// HUD button click (small movement = click, not drag).
-		if ms.dragStartPx[1] < hudH && abs64(dx) < 8 && abs64(dy) < 8 {
+		// HUD button click (small movement = click, not drag) — solo mode only.
+		if g.mode != modeVersus && ms.dragStartPx[1] < hudH && abs64(dx) < 8 && abs64(dy) < 8 {
 			demoX, attackX, demoW, attackW := modeButtonBounds()
 			fx := float32(ms.dragStartPx[0])
 			if fx >= demoX && fx < demoX+demoW {
@@ -58,17 +69,17 @@ func (e *EbitenGame) handleMouse() {
 			return
 		}
 
-		// Game-over overlay click → restart Ball Attack.
-		if g.state == stateGameOver && ms.dragStartPx[1] >= hudH {
+		// Game-over overlay click → restart Ball Attack (solo mode only).
+		if g.mode != modeVersus && g.state == stateGameOver && ms.dragStartPx[1] >= hudH {
 			g.Reset(modeAttack)
 			return
 		}
 
-		// Grid drag-to-swap. Queue through hub.MoveIn so the move is held
-		// if an animation is in progress and applied when stateWaiting resumes.
 		if g.state == stateGameOver {
 			return
 		}
+
+		// Grid drag-to-swap.
 		const minDrag = cellSize * 0.35
 		if abs64(dx) < minDrag && abs64(dy) < minDrag {
 			return
@@ -88,7 +99,7 @@ func (e *EbitenGame) handleMouse() {
 			}
 		}
 		select {
-		case g.hub.MoveIn <- MoveMsg{Row: ms.dragStartCell.R, Col: ms.dragStartCell.C, Dir: dir}:
+		case g.moveIn <- MoveMsg{Row: ms.dragStartCell.R, Col: ms.dragStartCell.C, Dir: dir}:
 		default:
 		}
 		return
@@ -98,10 +109,10 @@ func (e *EbitenGame) handleMouse() {
 	if pressed && !ms.mouseDown {
 		ms.mouseDown = true
 		ms.dragStartPx = [2]float64{px, py}
-		ms.dragCurPx = [2]float64{px, py}
-		// Grid cell for drag origin (account for HUD offset).
+		ms.dragCurPx   = [2]float64{px, py}
 		gridY := py - hudH
-		ms.dragStartCell = Pos{int(gridY) / cellSize, int(px) / cellSize}
+		gridX := px - boardX
+		ms.dragStartCell = Pos{int(gridY) / cellSize, int(gridX) / cellSize}
 	}
 	if pressed {
 		ms.dragCurPx = [2]float64{px, py}
@@ -109,16 +120,17 @@ func (e *EbitenGame) handleMouse() {
 
 	// ── Hover highlight (grid area only, not while dragging) ─────────────────
 	gridY := py - hudH
-	hc := Pos{int(gridY) / cellSize, int(px) / cellSize}
+	gridX := px - boardX
+	hc := Pos{int(gridY) / cellSize, int(gridX) / cellSize}
 	if !pressed && gridY >= 0 && hc.R < GridH && hc.C >= 0 && hc.C < GridW && !g.grid.Bricks[hc.R][hc.C] {
-		ms.hoverCell = hc
+		ms.hoverCell  = hc
 		ms.hoverValid = true
 	} else {
 		ms.hoverValid = false
 	}
 
-	// ── Space bar: restart Ball Attack from game-over ────────────────────────
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && g.state == stateGameOver {
+	// ── Space bar: restart Ball Attack from game-over (solo mode only) ────────
+	if g.mode != modeVersus && ebiten.IsKeyPressed(ebiten.KeySpace) && g.state == stateGameOver {
 		g.Reset(modeAttack)
 	}
 }
