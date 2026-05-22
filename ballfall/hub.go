@@ -47,20 +47,17 @@ func (h *Hub) SetMode(mode string) {
 }
 
 // Register adds a new client. In solo mode the first client is the player and
-// the rest are observers. In versus mode the first two clients are players 1
-// and 2; the rest are observers. The current board state is queued immediately.
+// the rest are observers. In versus mode all web clients start as observers and
+// must explicitly claim a player slot — this avoids conflicting with the local
+// GUI player who already feeds moves directly into hub.MoveIn.
 func (h *Hub) Register(c *Client) WelcomeMsg {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[c] = true
-	if h.player == nil {
+	if h.mode != "versus" && h.player == nil {
 		h.player = c
 		c.role = "player"
 		c.playerID = 1
-	} else if h.mode == "versus" && h.player2 == nil {
-		h.player2 = c
-		c.role = "player"
-		c.playerID = 2
 	} else {
 		c.role = "observer"
 		c.playerID = 0
@@ -142,18 +139,19 @@ func (h *Hub) Broadcast(msg any) {
 }
 
 // DispatchMove enqueues a move to the correct game's move channel based on
-// which player sent it.
+// the client's playerID. Using playerID rather than pointer comparison avoids
+// mis-routing when a client transitions between roles.
 func (h *Hub) DispatchMove(c *Client, m MoveMsg) {
 	h.mu.Lock()
-	isP1 := h.player == c
-	isP2 := h.player2 == c
+	pid := c.playerID
 	h.mu.Unlock()
-	if isP1 {
+	switch pid {
+	case 1:
 		select {
 		case h.MoveIn <- m:
 		default:
 		}
-	} else if isP2 {
+	case 2:
 		select {
 		case h.MoveIn2 <- m:
 		default:
@@ -229,13 +227,18 @@ func (h *Hub) HandleClientMsg(c *Client, msg []byte) {
 	}
 }
 
-// ClaimPlayer makes c the player-1 unconditionally, demoting the current
-// player-1 (if any) to observer. Returns the demoted client.
+// ClaimPlayer makes c the player-1 unconditionally. Releases c from the
+// player-2 slot if held, and demotes the previous player-1 (if any).
+// Returns the demoted player-1 client (if different from c).
 func (h *Hub) ClaimPlayer(c *Client) (demoted *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.player == c {
 		return nil
+	}
+	// Release P2 slot if c currently holds it.
+	if h.player2 == c {
+		h.player2 = nil
 	}
 	demoted = h.player
 	if demoted != nil {
@@ -248,13 +251,17 @@ func (h *Hub) ClaimPlayer(c *Client) (demoted *Client) {
 	return demoted
 }
 
-// ClaimPlayer2 makes c the player-2 slot, demoting any existing player-2.
-// Returns the demoted client.
+// ClaimPlayer2 makes c the player-2 slot. Releases c from the player-1 slot
+// if held, and demotes any previous player-2. Returns the demoted client.
 func (h *Hub) ClaimPlayer2(c *Client) (demoted *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.player2 == c {
 		return nil
+	}
+	// Release P1 slot if c currently holds it.
+	if h.player == c {
+		h.player = nil
 	}
 	demoted = h.player2
 	if demoted != nil {
