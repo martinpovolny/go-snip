@@ -86,8 +86,9 @@ type FallAnimMsg struct {
 
 // RoleMsg is sent to a specific client when its role changes.
 type RoleMsg struct {
-	Type string `json:"type"` // "role"
-	Role string `json:"role"` // "player" | "observer"
+	Type     string `json:"type"`               // "role"
+	Role     string `json:"role"`               // "player" | "observer"
+	PlayerID int    `json:"player_id,omitempty"` // 1 or 2 in versus; 0 (omitted) otherwise
 }
 
 // InMsg is any message received from a client.

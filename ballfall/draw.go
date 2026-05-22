@@ -68,6 +68,7 @@ type boardDrawData struct {
 	swapColorA     int
 	swapColorB     int
 	swapProgress   float64
+	versusWinner   bool // true = this board won (opponent's column filled)
 }
 
 func collectBoardData(g *Game) boardDrawData {
@@ -87,6 +88,7 @@ func collectBoardData(g *Game) boardDrawData {
 		swapColorA:   g.swapColorA,
 		swapColorB:   g.swapColorB,
 		swapProgress: g.swapProgress,
+		versusWinner: g.versusWinner,
 	}
 	g.mu.Unlock()
 	return d
@@ -251,7 +253,11 @@ func drawBoardGrid(screen *ebiten.Image, d boardDrawData, ms *mouseState, x0 flo
 		cy := hudH + GridH*cellSize/2
 
 		if d.mode == modeVersus {
-			ebitenutil.DebugPrintAt(screen, "DEFEATED", cx-24, cy-14)
+			if d.versusWinner {
+				ebitenutil.DebugPrintAt(screen, "WINNER!", cx-21, cy-14)
+			} else {
+				ebitenutil.DebugPrintAt(screen, "DEFEATED", cx-24, cy-14)
+			}
 		} else {
 			ebitenutil.DebugPrintAt(screen, "GAME  OVER", cx-30, cy-30)
 			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", d.score), cx-24, cy-14)

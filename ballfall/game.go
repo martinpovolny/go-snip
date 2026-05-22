@@ -72,6 +72,7 @@ type Game struct {
 	playerID     int   // 1 or 2 (0 = solo)
 	opponent     *Game // nil in solo modes
 	penaltyQueue int   // penalty balls waiting to drop; guarded by mu
+	versusWinner bool  // true when this board survived (opponent's column filled)
 }
 
 func NewGame(h *Hub) *Game {
@@ -138,6 +139,7 @@ func (g *Game) Reset(mode gameMode) {
 	g.swapProgress = 0
 	g.dropTicks = attackDropInterval
 	g.penaltyQueue = 0
+	g.versusWinner = false
 
 	switch mode {
 	case modeAttack, modeVersus:
@@ -280,10 +282,12 @@ func (g *Game) dropBallAt(col int) {
 	if landRow < 0 {
 		// Column is full — game over.
 		g.state = stateGameOver
+		g.versusWinner = false // this board lost
 		score := g.score
 		if g.opponent != nil {
 			g.opponent.mu.Lock()
 			g.opponent.state = stateGameOver
+			g.opponent.versusWinner = true // opponent survives = winner
 			g.opponent.mu.Unlock()
 		}
 		g.mu.Unlock()

@@ -685,6 +685,10 @@ function connect() {
 
     if (msg.type === 'role') {
       setRole(msg.role);
+      if (msg.player_id) {
+        myPlayerID = msg.player_id;
+        updateVersusClaimButtons();
+      }
       return;
     }
 

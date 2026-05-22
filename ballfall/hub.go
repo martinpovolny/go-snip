@@ -214,12 +214,12 @@ func (h *Hub) HandleClientMsg(c *Client, msg []byte) {
 			if demoted != nil {
 				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
 			}
-			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
+			h.SendTo(c, RoleMsg{Type: "role", Role: "player", PlayerID: 2})
 		} else {
 			if demoted := h.ClaimPlayer(c); demoted != nil {
 				h.SendTo(demoted, RoleMsg{Type: "role", Role: "observer"})
 			}
-			h.SendTo(c, RoleMsg{Type: "role", Role: "player"})
+			h.SendTo(c, RoleMsg{Type: "role", Role: "player", PlayerID: 1})
 		}
 	case "set_mode":
 		var sm SetModeMsg
