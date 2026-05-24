@@ -2,11 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+const eventRetentionDays = 90
 
 // Store is a SQLite-backed ring buffer for monitor check results.
 // Each monitor keeps at most `keep` rows; older rows are pruned on every insert.
@@ -49,6 +52,17 @@ func NewStore(path string, keep int) (*Store, error) {
 			consecutive INTEGER NOT NULL DEFAULT 0,
 			alerted     INTEGER NOT NULL DEFAULT 0
 		);
+
+		CREATE TABLE IF NOT EXISTS events (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			ntfy_id     TEXT    NOT NULL UNIQUE,
+			received_at INTEGER NOT NULL,
+			title       TEXT,
+			message     TEXT    NOT NULL DEFAULT '',
+			tags        TEXT    NOT NULL DEFAULT '[]',
+			priority    INTEGER NOT NULL DEFAULT 3
+		);
+		CREATE INDEX IF NOT EXISTS idx_events ON events (received_at DESC);
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
@@ -204,6 +218,85 @@ func (s *Store) SaveAlertState(monitor string, consecutive int, alerted bool) er
 		monitor, consecutive, boolInt(alerted),
 	)
 	return err
+}
+
+type EventRecord struct {
+	ID         int64    `json:"id"`
+	NtfyID     string   `json:"ntfy_id"`
+	ReceivedAt int64    `json:"received_at"`
+	Title      string   `json:"title,omitempty"`
+	Message    string   `json:"message"`
+	Tags       []string `json:"tags,omitempty"`
+	Priority   int      `json:"priority,omitempty"`
+}
+
+func (s *Store) RecordEvent(ntfyID string, receivedAt int64, title, message string, tags []string, priority int) error {
+	if tags == nil {
+		tags = []string{}
+	}
+	tagsJSON, _ := json.Marshal(tags)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(
+		`INSERT OR IGNORE INTO events (ntfy_id, received_at, title, message, tags, priority)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		ntfyID, receivedAt, nullStr(title), message, string(tagsJSON), priority,
+	)
+	if err != nil {
+		return err
+	}
+
+	cutoff := time.Now().Unix() - int64(eventRetentionDays*24*3600)
+	_, err = tx.Exec(`DELETE FROM events WHERE received_at < ?`, cutoff)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) Events(limit int) ([]EventRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, ntfy_id, received_at, title, message, tags, priority
+		 FROM events ORDER BY received_at DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EventRecord
+	for rows.Next() {
+		var ev EventRecord
+		var title sql.NullString
+		var tagsJSON string
+		if err := rows.Scan(&ev.ID, &ev.NtfyID, &ev.ReceivedAt, &title, &ev.Message, &tagsJSON, &ev.Priority); err != nil {
+			return nil, err
+		}
+		if title.Valid {
+			ev.Title = title.String
+		}
+		if tagsJSON != "" && tagsJSON != "null" {
+			_ = json.Unmarshal([]byte(tagsJSON), &ev.Tags)
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
+// LastEventID returns the ntfy message ID of the most recently stored event,
+// used as the since= parameter on reconnect to avoid re-fetching old messages.
+func (s *Store) LastEventID() string {
+	var id string
+	err := s.db.QueryRow(`SELECT ntfy_id FROM events ORDER BY received_at DESC LIMIT 1`).Scan(&id)
+	if err != nil {
+		return "all"
+	}
+	return id
 }
 
 func boolInt(b bool) int {

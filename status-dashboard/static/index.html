@@ -362,7 +362,7 @@ function renderEvents(data) {
     : msgs.map(m => {
         const tags = (m.tags || []).map(t => `<span class="badge" style="background:var(--c-gray-bg);color:var(--c-gray)">${e(t)}</span>`).join(' ');
         return `<tr>
-          <td class="mono dim" style="white-space:nowrap">${e(fmtTime(m.time))}</td>
+          <td class="mono dim" style="white-space:nowrap">${e(fmtTime(m.received_at))}</td>
           <td>${priorityBadge(m.priority)}<span class="name">${e(m.title || '—')}</span></td>
           <td class="dim">${e(m.message)}</td>
           <td>${tags || '<span class="dim">—</span>'}</td>

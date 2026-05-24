@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -65,8 +63,37 @@ func main() {
 		if ntfyPass != "" {
 			notifier = NewNotifier(*ntfyURL, *ntfyTopic, *ntfyUser, ntfyPass, store)
 			log.Printf("ntfy: will publish alerts to %s/%s", *ntfyURL, *ntfyTopic)
+			if store != nil {
+				es := NewEventSubscriber(*ntfyURL, *ntfyEventsTopic, *ntfyUser, ntfyPass, store)
+				es.Start()
+				log.Printf("events: subscribing to %s/%s", *ntfyURL, *ntfyEventsTopic)
+			}
 		} else {
 			log.Printf("ntfy: NTFY_PASSWORD not set, notifications disabled")
+		}
+
+		if store != nil {
+			http.HandleFunc("/ntfy-events", func(w http.ResponseWriter, r *http.Request) {
+				limit := 1000
+				if l := r.URL.Query().Get("limit"); l != "" {
+					if n, err := strconv.Atoi(l); err == nil && n > 0 {
+						limit = n
+					}
+				}
+				evts, err := store.Events(limit)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if evts == nil {
+					evts = []EventRecord{}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				if err := json.NewEncoder(w).Encode(evts); err != nil {
+					log.Printf("encode: %v", err)
+				}
+			})
 		}
 
 		if store != nil {
@@ -126,63 +153,6 @@ func main() {
 			})
 		}
 	}
-
-	// ntfy events feed proxy
-	http.HandleFunc("/ntfy-events", func(w http.ResponseWriter, r *http.Request) {
-		url := strings.TrimRight(*ntfyURL, "/") + "/" + *ntfyEventsTopic + "/json?since=168h&poll=1"
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if ntfyPass != "" {
-			req.SetBasicAuth(*ntfyUser, ntfyPass)
-		}
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		type NtfyMsg struct {
-			ID       string   `json:"id"`
-			Time     int64    `json:"time"`
-			Event    string   `json:"event"`
-			Message  string   `json:"message"`
-			Title    string   `json:"title,omitempty"`
-			Tags     []string `json:"tags,omitempty"`
-			Priority int      `json:"priority,omitempty"`
-		}
-		var msgs []NtfyMsg
-		sc := bufio.NewScanner(resp.Body)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" {
-				continue
-			}
-			var msg NtfyMsg
-			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				continue
-			}
-			if msg.Event == "message" {
-				msgs = append(msgs, msg)
-			}
-		}
-		// reverse to newest-first
-		for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-			msgs[i], msgs[j] = msgs[j], msgs[i]
-		}
-		if msgs == nil {
-			msgs = []NtfyMsg{}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		if err := json.NewEncoder(w).Encode(msgs); err != nil {
-			log.Printf("encode: %v", err)
-		}
-	})
 
 	// Dashboard
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
