@@ -99,6 +99,7 @@ tr:hover td{background:var(--bg)}
   <div class="tab active" id="tab-peers" onclick="switchTab('peers')">WireGuard peers</div>
   <div class="tab" id="tab-monitors" onclick="switchTab('monitors')">HTTP monitors</div>
   <div class="tab" id="tab-alerts" onclick="switchTab('alerts')">Alerts</div>
+  <div class="tab" id="tab-events" onclick="switchTab('events')">Events</div>
 </div>
 
 <main>
@@ -160,6 +161,23 @@ tr:hover td{background:var(--bg)}
           </tr>
         </thead>
         <tbody id="tbody-alerts"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- events panel -->
+  <div class="panel" id="panel-events">
+    <div class="wrap">
+      <table aria-label="ntfy events feed">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Title</th>
+            <th>Message</th>
+            <th>Tags</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-events"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -329,16 +347,40 @@ function renderAlerts(data) {
       }).join('');
 }
 
+// ---------- events ----------
+
+function priorityBadge(p) {
+  if (p >= 5) return `<span class="badge r">urgent</span> `;
+  if (p >= 4) return `<span class="badge a">high</span> `;
+  return '';
+}
+
+function renderEvents(data) {
+  const msgs = data || [];
+  document.getElementById('tbody-events').innerHTML = msgs.length === 0
+    ? `<tr><td colspan="4" class="empty">No events in the last 7 days.</td></tr>`
+    : msgs.map(m => {
+        const tags = (m.tags || []).map(t => `<span class="badge" style="background:var(--c-gray-bg);color:var(--c-gray)">${e(t)}</span>`).join(' ');
+        return `<tr>
+          <td class="mono dim" style="white-space:nowrap">${e(fmtTime(m.time))}</td>
+          <td>${priorityBadge(m.priority)}<span class="name">${e(m.title || '—')}</span></td>
+          <td class="dim">${e(m.message)}</td>
+          <td>${tags || '<span class="dim">—</span>'}</td>
+        </tr>`;
+      }).join('');
+}
+
 // ---------- refresh ----------
 
 async function refresh(){
   const spin = document.getElementById('spin');
   spin.style.display = '';
   try {
-    const [peersResp, monsResp, alertsResp] = await Promise.allSettled([
+    const [peersResp, monsResp, alertsResp, eventsResp] = await Promise.allSettled([
       fetch('/status'),
       fetch('/monitors-status'),
       fetch('/notifications?limit=100'),
+      fetch('/ntfy-events'),
     ]);
 
     if(peersResp.status === 'fulfilled' && peersResp.value.ok)
@@ -357,6 +399,9 @@ async function refresh(){
 
     if(alertsResp.status === 'fulfilled' && alertsResp.value.ok)
       renderAlerts(await alertsResp.value.json());
+
+    if(eventsResp.status === 'fulfilled' && eventsResp.value.ok)
+      renderEvents(await eventsResp.value.json());
 
     document.getElementById('ts').textContent = 'updated ' + new Date().toLocaleTimeString();
   } finally { spin.style.display = 'none'; }
