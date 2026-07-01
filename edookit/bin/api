@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Usage: bin/api /api/person-search/v1/200
+#        bin/api /api/scheduler/v1/change?from=2026-05-21
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source <(grep -v '^\s*#' .env | grep '=')
+
+PATH_ARG="${1:?Usage: bin/api /path}"
+[[ "$PATH_ARG" == /api/scheduler/* || "$PATH_ARG" == /api/public/* ]] \
+  && BASE="${API_URL/.edookit.net/-login.edookit.net}" \
+  || BASE="$API_URL"
+
+[[ "$PATH_ARG" == /api/public/* ]] \
+  && curl -fsSL "${BASE}${PATH_ARG}" \
+  || curl -fsSL -u "${API_USER}:${API_PASSWORD}" "${BASE}${PATH_ARG}"
