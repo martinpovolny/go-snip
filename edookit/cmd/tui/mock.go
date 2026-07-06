@@ -133,14 +133,6 @@ func (m *MockSource) ListPaymentPrescriptions(_ edookit.PrescriptionListOpts) ([
 	}, nil
 }
 
-func (m *MockSource) CreatePaymentPrescription(_ edookit.CreatePrescriptionReq) (int, error) {
-	return 99, nil
-}
-
-func (m *MockSource) CreatePayment(_ edookit.CreatePaymentReq) (int, error) {
-	return 99, nil
-}
-
 func (m *MockSource) ListStudentStats(_ string) ([]edookit.StudentStat, error) {
 	return []edookit.StudentStat{
 		{PersonAnonIdent: "9dc8eba3-f973-4a1a-af44-9cdb81722f76", Age: ptr(11), Gender: ptr("M"), ClassName: ptr("5.A"), CurrentGradeNum: ptr(5), CitizenshipCountryCode: ptr("CZE")},

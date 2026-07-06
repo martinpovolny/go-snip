@@ -18,8 +18,6 @@ type DataSource interface {
 	ListCourses(opts CourseListOpts) ([]StudentWithCourses, error)
 
 	ListPaymentPrescriptions(opts PrescriptionListOpts) ([]PaymentPrescription, error)
-	CreatePaymentPrescription(req CreatePrescriptionReq) (int, error)
-	CreatePayment(req CreatePaymentReq) (int, error)
 
 	ListStudentStats(date string) ([]StudentStat, error)
 

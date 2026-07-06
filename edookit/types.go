@@ -295,14 +295,6 @@ type Organization struct {
 	Name string `json:"name"`
 }
 
-type PrescriptionPerson struct {
-	PersonID   int     `json:"person_id"`
-	CurrencyID *int    `json:"currency_id,omitempty"`
-	Amount     *string `json:"amount,omitempty"`
-	DueDate    *string `json:"due_date,omitempty"`
-	Description *string `json:"description,omitempty"`
-}
-
 type PaymentPrescription struct {
 	ID             int    `json:"id"`
 	Name           string `json:"name"`
@@ -325,37 +317,6 @@ type PrescriptionListOpts struct {
 	PaymentID            *int
 	OperationIdentifier  *string
 	SpecificSymbol       *string
-}
-
-type CreatePrescriptionReq struct {
-	Name               string               `json:"name"`
-	Description        *string              `json:"description,omitempty"`
-	DueDate            *string              `json:"due_date,omitempty"`
-	Amount             *float64             `json:"amount,omitempty"`
-	CurrencyID         *int                 `json:"currency_id,omitempty"`
-	State              *int                 `json:"state,omitempty"`
-	SpecificSymbol     *string              `json:"specific_symbol,omitempty"`
-	IsCredit           bool                 `json:"is_credit"`
-	PreviousPrescID    *int                 `json:"previous_prescription_id,omitempty"`
-	Direction          *int                 `json:"direction,omitempty"`
-	PersonList         []PrescriptionPerson `json:"person_list,omitempty"`
-}
-
-type CreatePaymentReq struct {
-	Date                *string  `json:"date,omitempty"`
-	Amount              float64  `json:"amount"`
-	CurrencyID          int      `json:"currency_id"`
-	Direction           *int     `json:"direction,omitempty"`
-	Type                int      `json:"type"`
-	Description         *string  `json:"description,omitempty"`
-	OrganizationID      *int     `json:"organization_id,omitempty"`
-	VariableSymbol      *string  `json:"variable_symbol,omitempty"`
-	SpecificSymbol      *string  `json:"specific_symbol,omitempty"`
-	Message             *string  `json:"message,omitempty"`
-	BankAccountNumber   *string  `json:"bank_account_number,omitempty"`
-	OperationIdentifier *string  `json:"operation_identifier,omitempty"`
-	PersonID            *int     `json:"person_id,omitempty"`
-	PrescriptionID      *int     `json:"prescription_id,omitempty"`
 }
 
 // --- Statistics ---

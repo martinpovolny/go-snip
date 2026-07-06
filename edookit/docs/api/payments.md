@@ -64,6 +64,8 @@ GET /api/payment/v1/list/paymentPrescription
 
 ## Create Endpoints
 
+> Implemented in the Go library as `CreatePaymentPrescription`/`CreatePayment` in `payments_write.go`, gated behind the `mutating` build tag — excluded from the default `go build`/`go get` surface. See root `CLAUDE.md`.
+
 ### Create Payment Prescription
 ```
 POST /api/payment/v1/create/paymentPrescription

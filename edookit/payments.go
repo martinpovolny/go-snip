@@ -39,26 +39,6 @@ func (c *Client) ListPaymentPrescriptions(opts PrescriptionListOpts) ([]PaymentP
 	return out, nil
 }
 
-func (c *Client) CreatePaymentPrescription(req CreatePrescriptionReq) (int, error) {
-	var resp struct {
-		ID int `json:"id"`
-	}
-	if err := c.post("/api/payment/v1/create/paymentPrescription", req, &resp); err != nil {
-		return 0, err
-	}
-	return resp.ID, nil
-}
-
-func (c *Client) CreatePayment(req CreatePaymentReq) (int, error) {
-	var resp struct {
-		ID int `json:"id"`
-	}
-	if err := c.post("/api/payment/v1/create/payment", req, &resp); err != nil {
-		return 0, err
-	}
-	return resp.ID, nil
-}
-
 func (c *Client) ListCurrencies() ([]Currency, error) {
 	var out []Currency
 	if err := c.get("/api/payment/v1/list/currency", nil, &out); err != nil {
